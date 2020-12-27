@@ -1,0 +1,268 @@
+---
+title: "Data import with ReadR"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(rio)
+```
+Getting started
+Most of readr functions are concerned with turning flat files to dataframe
+
+- read_csv() = reads comma delimited files
+- read_csv2() = reads semicolon delimited files
+- read_tsv() = reads tab delimited files
+- read_delim() = reads files with any delim
+- read_fwf() = fixed width files
+- read_log() = Apache style log files
+
+
+```{r}
+heights = read_csv('heights.csv')
+heights2 = import('heights.csv')
+heights2
+heights
+as.tibble(heights2)
+
+#can also supply inline csv
+read_csv('a,b,c
+         1,2,3
+         4,5,6')
+
+#skip some lines
+read_csv('The first line of metadata
+         The second line
+         x,y,z
+         1,2,3', skip = 2)
+
+read_csv('#a comment I want to skip
+         x,y,z
+         1,2,3', comment = '#')
+
+#data might not have column names, you can use col_names = F
+read_csv('1,2,3\n4,5,6', col_names = F)
+
+#pass col names
+read_csv('1,2,3
+         4,5,6', col_names = c('a','b','c'))
+
+#another option is to tweak na which specifies value that are used for missing values
+
+read.csv('a,b,c
+         ,1,2,.')
+```
+
+Exercise
+
+```{r}
+#what function would you use to read a file where fields are sep with |
+?read_csv
+
+#aside from file, skip, comment, what other arguments do read_csv and read_tsv have in common
+
+#most important arguments in read_fwf()
+?read_fwf
+
+#4 what argument do you need to specify to put the following text to dataframe
+read_csv("x,y\n1,'a,b'",quote = "'")
+
+#identify what is wrong in each of the following inline csv
+read_csv("a,b1\n1,2,3\n4,4,5,6")
+read_csv("a,b,c\n1,2\n1,2,3,4")
+read_csv("a,b\n,2\na,b")
+```
+
+Parsing a vector - these functions take a character vector and return a more specailized vector
+```{r}
+str(parse_logical(c('T','F','NA')))
+str(parse_integer(c('1','2','3')))
+str(parse_date(c('2010-01-01','1979-10-04')))
+
+parse_integer(c('1','231','.','456'), na = '.')
+
+#if parsing fails youll get a warning
+x = parse_integer(c('123','345','abc','123.45'))
+x
+#use problem() to get the complete set
+problems(x)
+```
+
+The following sections describe parsers in more detail
+Numbers
+```{r}
+parse_double('1.23')
+#because readr's default locale is US-centric
+parse_double('1,23', local = locale(decimal_mark = ','))
+
+#parse number addresses numeric characters before and after a number. works for currencies and percentages
+x = '$100'
+y = c('$100','20%','!30!')
+typeof(x)
+parse_number('$100')
+parse_number(x)
+parse_number(y)
+parse_number('It cost $123.45')
+
+#combination of parse number and locale
+parse_number('$123,456,789')
+parse_number('$123.456.789', locale = locale(grouping_mark = '.'))
+parse_number("123'456'789%%", locale = locale(grouping_mark = "'"))
+```
+Strings
+```{r}
+#understand the underlying representation of strings
+charToRaw('Hadley')
+
+x1 = 'El Ni\xf1o was particularly bad this year'
+x2 = '\x82\xb1\x82\xf1\x82\xc9\x82\xbf\x82\xcd'
+
+#specify the encoding parse_character
+parse_character(x1, locale = locale(encoding = 'latin1'))
+parse_character(x2, locale = locale(encoding = 'Shift-JIS'))
+
+#readr has guess encoding to help figure out the encoding
+guess_encoding(charToRaw(x1))
+guess_encoding(charToRaw(x2))
+
+```
+Factors - R uses factors to represent categorical variables that have a known set of possible values.
+```{r}
+fruit = c('apple','banana')
+parse_factor(c('apple','banana','bananana'), levels = fruit)
+```
+
+Dates, datetimes, and times
+
+YOu pick between three parsers
+- Number of days since 1970
+- date time or number of seconds after 1970
+- time the number of seconds since midnight
+```{r}
+#parse_datetime expects ISO8601 date-time. 
+parse_datetime('2010-01-01T2010')
+
+#if time is omitted it will be set to midnight
+parse_datetime('20101010')
+
+#parse_date expects four digit year, month, date
+parse_date('2010-10-01')
+
+#parse time expects hour, minutes, and seconds
+library(hms)
+parse_time('1:10 am')
+parse_time('20:10:01')
+```
+Datetime format
+Year
+- %Y 4 digits
+- %y 2 digits
+Month
+- %m 2 digits
+- %b abbreviated('Jan')
+- %B fullname ('January')
+Day
+- %d 2 digits
+- %e optional leading space
+Time
+- %H (0-23 hr format)
+- %I (0-12, must be used with %p)
+- %p (am-pm indicator)
+- %M (minutes)
+- %S (integer seconds)
+- %OS (real seconds)
+Non digits
+- %. skip one digit non characte
+- %* skip any number non digit
+
+```{r}
+parse_date('01/01/15', '%m/%d/%y')
+parse_date('01/02/15', '%d/%m/%y')
+parse_date('01/02/15', '%y/%m/%d')
+
+#if you are using %b or %B with non english names, youll need to set lang argument to locale
+
+parse_date('1 janvier 2015', '%d %B %Y', locale = locale('fr'))
+```
+Exercises
+```{r}
+#what are the most important arguments to locale
+?locale
+
+#2. What happens if you try to set decimal mark and grouping mark to the same character.what happens to default value of grouping mark when you set the decimal to '.'? what happens to default value decimal mark when u set the grouping mark to '.'
+parse_number("$135.435,45", locale = locale(grouping_mark = ".", decimal_mark = ","))
+
+#3. what does dateformat and time_format in locale do
+?locale
+local_custom = locale(date_format = 'Day %d Mon %m Year %y')
+parse_date('Day 01 Mon 02 Year 03', locale = local_custom)
+
+#create a local object that encapsulates settings for types outside US
+au_locale = locale(date_format = '%d/%m/%Y')
+parse_date('02/01/2006', locale = au_locale)
+
+#parse the ff
+d1 <- "January 1, 2010"
+d2 <- "2015-Mar-07"
+d3 <- "06-Jun-2017"
+d4 <- c("August 19 (2015)", "July 1 (2015)")
+d5 <- "12/30/14" # Dec 30, 2014
+t1 <- "1705"
+t2 <- "11:15:10.12 PM"
+
+parse_date(d1, '%B %d, %Y')
+parse_date(d2, '%Y-%b-%d')
+parse_date(d3, '%d-%b-%Y')
+parse_date(d4, '%B %d (%Y)')
+parse_date(d5, '%m/%d/%y')
+parse_time(t1, '%H%M')
+parse_time(t2, '%I:%M:%OS %p')
+```
+Parsing a file
+readr tries to guess the type of each column
+```{r}
+guess_parser('2010-01-01')
+guess_parser(c('T','F','T','F','T'))
+
+#the defaults however do not work with large files
+challenge = read_csv(readr_example('challenge.csv'))
+
+problems(challenge)
+
+#a good strategy is to work column by colum until there is no problem remaining
+
+challenge = read_csv(readr_example('challenge.csv'), col_types = cols(x = col_double(), y = col_date()))
+
+chal = as.tibble(import(readr_example('challenge.csv')))
+chal$x = as.double(chal$x)
+chal$y = as.Date(chal$y)
+tail(chal)
+```
+
+
+Every parse_xyz() function has corresponding col_xyz(). You parse when the data is in character data vector in R already and use col_xyz() when u want to tell readr how to load the data. 
+
+Other strategies for readr
+```{r}
+#change the maximum row for guessing
+challenge2 = read_csv(readr_example('challenge.csv'), guess_max = 1002)
+challenge2
+
+#read columns as character vectors
+challenge2 = read_csv(readr_example('challenge.csv'), col_types = cols(.default = col_character()))
+challenge2
+```
+
+writing to a file
+```{r}
+vignette('rio')
+
+write_csv(challenge, 'challenge.csv')
+export(challenge, 'challenge.csv')
+```
+
+
+
+
+
+

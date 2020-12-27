@@ -1,0 +1,312 @@
+---
+title: "Relational Data with Dplyr"
+output: html_notebook
+---
+
+
+Explore relational data from nycflights13 using verbs from dpylr
+```{r}
+library(tidyverse)
+library(nycflights13)
+```
+```{r}
+nycflights13::airlines
+flights
+airlines #airline name and code
+airports #information about each airports
+planes #gives information about the plain, identified by tailnum
+weather #weather at each hour
+```
+
+
+Keys - variables used to connect each pair of table. Key is a variable that uniquely identifies an observation. 
+Primary key - uniquely identifies an observation on its own table. tailnum in planes is a priamary key
+foreign key - identifies an observation in another table. flights tailnum is a foreign key
+```{r}
+planes %>%
+  count(tailnum) %>%
+  filter(n  > 1)
+
+weather %>%
+  count(year, month, day, hour, origin) %>%
+  filter(n > 1)
+
+```
+
+If a table lacks a primary key, it is sometimes useful to add one with mutate and row_number(). This is called surrogate key.
+
+Primary key and corresponding foreign key in another table form a relation.
+
+Exercises
+```{r}
+## add a surrogate key to flights
+flights %>%
+  mutate(flight_id = row_number())
+
+#identify the keys of the following datasets
+Lahman::Batting %>%
+  distinct(playerID) %>%
+  count(playerID) %>%
+  filter(n > 1)
+
+Lahman::Master
+Lahman::Batting
+Lahman::Salaries
+```
+
+Mutating joins - 
+```{r}
+f2 = flights %>%
+  select(year:day, hour, origin, dest, tailnum, carrier)
+f2
+
+#add full airline name to the flights2 data. can combine usign left join
+
+f2 %>%
+  select(-origin, - dest) %>%
+  left_join(airlines, by = 'carrier')
+
+#you can get same results by using mutate
+f2 %>%
+  select(-origin, -dest) %>%
+  mutate(name = airlines$name[match(carrier, airlines$carrier)])
+```
+
+Understanding joins
+```{r}
+x = tribble(
+  ~key, ~val_x,
+  1, 'x1',
+  2, 'x2',
+  3, 'x3'
+)
+
+y = tribble(
+  ~key, ~val_y,
+  1, 'y1',
+  2, 'y2',
+  4, 'y3'
+)
+
+#Inner joins, whenever the keys are equal. Usually not used because its easy to lose observations
+x %>%
+  inner_join(y, by = 'key')
+
+#Outer joins
+#left join keeps observation of x
+#right join keeps observation of y
+#full join all observation
+
+```
+
+Duplicate keys
+```{r}
+x = tribble(
+  ~key, ~val_x, 
+  1, 'x1',
+  2, 'x2',
+  2, 'x3',
+  1, 'x4'
+)
+
+y = tribble(
+  ~key, ~val_y,
+  1, 'y1',
+  2, 'y2'
+)
+
+x %>%
+  left_join(y, by = 'key')
+
+#when you get duplicated keys, you get all possible combinations
+x = tribble(
+  ~key, ~val_x,
+  1, 'x1',
+  2, 'x2',
+  2 ,'x3',
+  3, 'x4'
+)
+y = tribble(
+  ~key, ~val_y,
+  1 , 'y1',
+  2, 'y2',
+  2, 'y3',
+  3, 'y4' 
+)
+
+left_join(x, y, by = 'key')
+```
+
+Defining key columns
+```{r}
+#the default is by = NULL
+#without by argument, it matches all same columns
+f2 %>%
+  left_join(weather)
+
+#flights and planes have same columns but different meaning, we only want to join by tailnum
+f2 %>%
+  left_join(planes, by ='tailnum')
+
+#each flight has an origin and destination airport so we specify which one we want to join to
+airports
+f2 %>%
+  left_join(airports, by = c('origin' = 'faa'))
+```
+
+Exercises
+```{r}
+#compute the average delay by destination then join on airports so that you can show the spatial distribution of delay
+install.packages('maps')
+
+airports %>%
+  semi_join(flights, c('faa' = 'dest')) %>%
+  ggplot(aes(x = lon, y = lat))+
+  borders('state')+
+  geom_point()+
+  coord_quickmap()
+
+flights %>%
+  select(arr_delay, dest) %>%
+  left_join(airports, c('dest' = 'faa')) %>%
+  group_by(dest) %>%
+  summarise(mean_delay = mean(arr_delay, na.rm = T)) %>%
+  inner_join(airports, c('dest'= 'faa'))%>%
+  ggplot(aes(lon, lat, color = mean_delay))+
+  geom_point()+
+  borders('state')+
+  coord_quickmap()
+
+#add the location of origin and destianation (lat, lon) to flights
+airport_loc = airports %>%
+  select(faa, lat, lon)
+
+flights %>%
+  select(year:day, hour, origin, dest) %>%
+  left_join(airport_loc, by = c('origin' = 'faa')) %>%
+  left_join(airport_loc, by = c('dest' = 'faa'), suffix = c('_origin','_dest'))
+
+
+#is there a relationship between age of plane and delays
+
+flights %>%
+  group_by(tailnum) %>%
+  summarise(delay = mean(arr_delay, na.rm = T)) %>%
+  left_join(planes)
+
+#what weather conditions is there more likely delay
+
+weather
+```
+
+Other implementations
+inner_join(x,y) = merge(x,y)
+left_join(x,y) = merge(x,y, all.x = T)
+right_join(x,y) = merge(x,y, all.y = T)
+full_join(x,y)= merge(x,y, all.x = T, all.y = T)
+
+Filtering joins - affects the observations not the variables. There are two types
+semi_join(x,y) = keeps all observations in x that have a value in y
+anti_join(x,y) = drops all observations in x that have a match in y
+Semi joins are useful in matching filtered summary tables back to original rows
+```{r}
+#top10 popular destinations
+top_dest = flights %>%
+  count(dest, sort = T) %>%
+  head(10)
+
+top_dest
+#find each flight that went on each of those destination
+flights %>%
+  filter(dest %in% top_dest$dest)
+
+#it is difficult to extend the approach in multiple variables. for example imagine you found the top10 days with highest average delays. How would you construct filter statement that used year,month,day to match it back to flights
+
+flights %>%
+  semi_join(top_dest)
+
+#only existence of a match is important; it does not matter which observation is matched. filtering joins never duplicate rows like mutating joins do
+
+#anti join keeps rows that dont match
+
+flights %>%
+  anti_join(planes, 'tailnum') %>%
+  count(tailnum, sort = T)
+
+```
+
+
+Exercise
+```{r}
+#what does it mean to have a missing tail num. What do tail numbers that dont have matching records in planes have in common
+
+flights %>%
+  anti_join(planes, 'tailnum') %>%
+  count(carrier)
+
+#flights that have flown at least 1000 flightt
+
+morethan_100 = flights %>%
+  group_by(tailnum) %>%
+  summarize(count = n()) %>%
+  filter(count >= 100)
+
+morethan_100
+planes %>%
+  semi_join(morethan_100)
+
+install.packages('fueleconomy')
+library(fueleconomy)
+
+#combine vehicles and common. Find only the records of the most common models
+vehicles %>%
+  semi_join(common, by = c('make','model'))
+
+# what does antijoin between flights and airports tell you
+anti_join(flights, airports, by = c('dest'= 'faa')) %>%
+  count(dest)
+
+#you might expect that theres implicit relationship between plane and airline, because each plane is flown by a single airline.
+
+plane_carrier = flights %>%
+  filter(!is.na(tailnum)) %>%
+  distinct(tailnum, carrier) %>%
+  count(tailnum) %>%
+  filter(n > 1)
+
+flights %>%
+  semi_join(plane_carrier)
+
+``` 
+
+Set operations
+intersect(x,y) = both only both observations of x and y
+union(x,y) = return unique observations in x and y
+setdiff(x,y) = observations in x but not in y
+```{r}
+df1 = tribble(
+  ~x, ~y,
+  1,1,
+  2,1
+)
+
+df2 = tribble(
+  ~x, ~y,
+  1,1,
+  1,2
+)
+
+intersect(df1, df2)
+union(df1, df2)
+setdiff(df1,df2)
+```
+
+
+
+
+
+
+
+
+
+

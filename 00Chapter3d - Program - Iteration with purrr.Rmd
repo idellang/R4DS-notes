@@ -1,0 +1,525 @@
+---
+title: "Iteration with purrr"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+```
+
+
+```{r}
+df = tibble(
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+
+df
+
+#get the median of each column
+median(df$a)
+median(df$b)
+median(df$c)
+median(df$d)
+
+#we could use a for loop
+output = vector('double',ncol(df))
+output
+
+for (i in seq_along(df)){
+  output[[i]] = median(df[[i]])
+}
+
+output
+```
+Every for loop has three components
+
+output vector - vector('double', length(x)). Before you start the loop, allocate sufficient space for output. This is very important for efficiency.
+
+sequence - i in seq_along(df) - determines what to loop over. each run of for loop will assign i to a different value in seq_along(df). it is a safe version of 1:length(df). the difference is taht if you have a zero length in vector, seq along does the right thing
+
+body - output[[i]] = median(df[[i]]) - this is the code that does the work. 
+
+
+Exercise
+```{r}
+# compute the mean of every column in mtcars
+?vector
+otuput = vector('double', length = ncol(mtcars))
+
+for (i in seq_along(mtcars)){
+  output[[i]] = mean(mtcars[[i]])
+}
+
+output
+
+#determine each ttype of column in flights
+flights
+output = vector('character', length = ncol(flights))
+
+for (i in seq_along(flights)){
+  output[[i]] = typeof(flights[[i]])
+}
+
+output
+
+#compute the number of unique values in each column of iris
+iris
+
+output = vector('double', length = ncol(iris))
+
+for (i in seq_along(iris)){
+  output[[i]] = n_distinct(iris[[i]])
+}
+
+output
+
+# generate 10 random normals for each mu = -10, 0, 10 and 100
+
+mu = c(-10, 0, 10, 100)
+output = vector('list', length(mu))
+
+?rnorm
+for (i in seq_along(mu)){
+  output[[i]] = rnorm(10, mean = mu[[i]])
+}
+
+
+```
+
+Exercise
+```{r}
+#eliminate the for loops by taking advantage of existing functions that work with vectors
+
+out = ''
+for (x in letters){
+  out = str_c(out,x)
+}
+
+?str_c
+str_c(out,letters, collapse = '')
+
+
+#2
+std_dev = 0
+x = sample(100)
+for (i in seq_along(x)){
+  std_dev = std_dev + (x[i]-mean(x))^2
+}
+std_dev = sqrt(std_dev/ length(x)-1)
+std_dev
+sd(x)
+
+
+```
+
+For loop variations
+- modifying an existing object instead of creating new object
+- looping over name or values instead of indicides
+- handling outputs of unknown lengths
+- handling sequencing of unknown lengths
+
+Modifying an existing object
+```{r}
+df = tibble(
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+
+rescale = function(x){
+  rng = range(x, na.rm = T)
+  (x - rng[1])/ (rng[2] - rng[1])
+}
+
+df$a = rescale(df$a)
+df$b = rescale(df$b)
+
+#using for loops
+for (i in seq_along(df)){
+  df[[i]] = rescale(df[[i]])
+}
+```
+
+
+Looping patterns - aside from seq_along(xs) and extracting value with x[[i]] there are other two forms
+loop over elements - for (x in xs)
+loop over names - for (nm in names(xs)), this gives you a name to access value with x[[nm]]
+
+Unknown output length - you might be tempted to solve this problem by progressively growing the vector
+```{r}
+means = c(0,1,2)
+
+output = double()
+
+for (i in seq_along(means)){
+  n = sample(100,1)
+  output = c(output, rnorm(n, means[[i]]))
+}
+
+str(output)
+
+# a better solution is to save results in a list then combine to a single vector after the loop is done
+out = vector('list', length(means))
+
+for (i in seq_along(means)){
+  n = sample(100,1)
+  out[[i]] = rnorm(n, mean = means[[i]])
+}
+str(out)
+str(unlist(out))
+unlist(out)
+```
+
+Unknown sequence length - you can use while loop
+
+while(condition){
+body
+}
+
+for (i in seq_along(x)){
+body
+}
+
+is equal to
+
+i = 1
+while(i <= length(x)){
+
+i+1
+}
+```{r}
+#use a while loop to get three heads in a row
+flip = function(){
+  sample(c('T','H'),1)
+}
+
+flips = 0
+nheads = 0
+
+while(nheads < 3){
+  if(flip() == 'H'){
+    nheads = nheads + 1
+  }
+  else{
+    nheads = 0
+  }
+  flips = flips + 1
+}
+flips
+```
+
+Exercises
+```{r}
+files <- dir(getwd(), pattern = "\\.csv$", full.names = TRUE)
+files
+
+#pre allocate list
+df_list <- vector("list", length(files))
+
+for (i in seq_along(files)){
+  df_list[[i]] = read_csv(files[[i]])
+}
+
+print(df_list)
+
+#use bindrows to combine into single df
+df = bind_rows(df_list)
+
+#what happens if you for (nm in names(x)) and x has no names
+
+x = c(11,12,13)
+print(names(x))
+
+for (nm in names(x)){
+  print(nm)
+  print(x[[nm]])
+}
+
+x <- c(a = 11, a = 12, c = 13)
+
+```
+
+For loops vs functionals - for loops are not as important in R as they are in other languages because R is a functional programming language. This means that it is possible to wrap up loops in a function and call that function instead of using loop directly
+
+
+```{r}
+df = tibble(
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+
+col_summary = function(df, fun){
+  out = vector('double', length = length(df))
+  for (i in seq_along(df)){
+    out[[i]] = fun(df[[i]])
+  }
+  out
+}
+
+col_summary(df, mean)
+```
+The idea of passing a function to another function is extremely a powerful idea. 
+
+Purrr package eliminates the need for for loops. The goal of purrr allow to break common list manipulation challenges to independent pieces
+
+?apply()
+
+Map functions
+
+map() - makes a list
+map_lgl() = makes a logical vector
+map_int() - makes integer vector
+map_double() - makes a double vector
+map_chr() - makes a character vector
+
+each function takes a vector as an input, applies function to each piece and returns a new vector of same length. 
+```{r}
+
+df
+?map_dbl
+map_dbl(df, mean)
+map_dbl(df, mean)
+
+#can also use with pipe
+df %>%
+  map_dbl(median)
+
+#map functions also preserves names
+x = list(x = 1:3, y = 4:5)
+map_int(x, length)
+
+
+```
+
+Shortcuts - there are few shortcuts you can use with .f to save a little typing. Imagine you want to fit a linaer model to each group in the dataset. The following example splits up mtcars into three pieces for each cylinder and fits the same linear model to each piece
+
+```{r}
+mtcars %>%
+  split(.$cyl) %>%
+  map(function(df) lm(mpg~wt, data = df))
+
+models = mtcars %>%
+  split(.$cyl) %>%
+  map(~lm(mpg ~ wt, data = .))
+
+```
+
+Used . as a pronoun it refers to the current list of element. when looking at many models, you might want to extract a summary statistics like R^2. To do that we need first to run summary() and extract component called r.squared. We could do that using the short hand for anonymous functions
+
+```{r}
+models %>%
+  map(summary) %>%
+  map_dbl(~.$r.squared)
+
+models %>%
+  map(summary) %>%
+  map_dbl('r.squared')
+
+# you can also use an integer to select elements by position
+
+x = list(list(1,2,3), list(4,5,6), list(7,8,9))
+x %>%
+  map_dbl(2)
+
+?map_dbl
+```
+
+
+Exercise
+```{r}
+#compute every mean of column in mtcars
+mtcars %>%
+  map(mean)
+
+flights %>%
+  map(typeof)
+
+iris %>%
+  map(n_distinct)
+
+mu = c(-10,0,10,100)
+mu %>%
+  map(~rnorm(10, mean = .))
+
+#check wether columns are factor
+
+diamonds %>%
+  map(is.factor)
+map_lgl(diamonds, is.factor)
+
+#eliminate anonymous function
+x <- split(mtcars, mtcars$cyl)
+map(x, function(df) lm(mpg ~ wt, data = df))
+
+#using the ~shortcut
+mtcars %>%
+  split(.$cyl) %>%
+  map(~lm(mpg~wt, data = .))
+
+#or create a function
+run_reg = function(df){
+  lm(mpg~wt, data = df)
+}
+mtcars %>%
+  split(.$cyl) %>%
+  map(run_reg)
+
+```
+
+Dealing with failure
+safely() - takes a function and returns a modified version. it will return a list of two elements: original result and error object
+```{r}
+
+safe_log = safely(log)
+
+str(safe_log(10))
+
+str(safe_log('a'))
+
+x = list(1, 10, 'a')
+y = x %>%
+  map(safely(log))
+str(y)
+
+#transpose to see all errors and outputs
+transpose(y)
+
+#other variations are possibly and quietly
+```
+
+Mapping over multiple arguments
+that is the job of map2 or pmap
+```{r}
+mu = list(5, 10, -3)
+mu %>%
+  map(rnorm, n = 5) %>%
+  str()
+
+#what if we want to add sd
+
+sigma = list(1,5,10)
+?rnorm
+map2(mu, sigma, rnorm, n = 10)
+
+#pmap
+
+n = list(1,3,5)
+args1 = list(n, mu, sigma)
+
+args1 %>%
+  pmap(rnorm) %>%
+  str()
+
+args2 = list(mean = mu, sd= sigma, n = n)
+args2 %>%
+  pmap(rnorm)
+
+#can store to dataframe
+params = tribble(
+  ~mean, ~sd, ~n,
+  5,1,1,
+  10,5,3,
+  -3,10,5
+)
+
+params %>%
+  pmap(rnorm)
+```
+
+Invoking different functions
+```{r}
+f = c('runif', 'rnorm','rpois')
+params = list(
+  list(min = -1, max = 1),
+  list(sd = 5),
+  list(lambda = 10)
+)
+
+params
+#use invoke map
+invoke_map(f, params, n = 5)
+
+#use tribble to match easier
+
+sim = tribble(
+  ~f, ~params,
+  'runif', list(min = -1, max = 1),
+  'rnorm', list(sd = 5),
+  'rpois', list(lambda = 10)
+)
+
+sim %>%
+  mutate(sim = invoke_map(f, params, n = 10)) %>%
+  select(sim)
+
+
+```
+
+Other patterns of For loops
+
+predicate functiosn return either True or False.
+keep() and discard() keep elements of input where the predicate is T or F
+```{r}
+iris %>%
+  keep(is.factor) %>%
+  str()
+
+iris %>%
+  discard(is.factor)
+```
+
+
+Some() and every() determine if the predicate is true for any or for all elements
+```{r}
+x = list(1:5, letters, list(10))
+x %>%
+  some(is_character)
+
+x %>%
+  every(is_vector)
+```
+
+detect() finds the first elmement where predicate is true and detect index returns its position
+```{r}
+x = sample(10)
+
+x %>%
+  detect(~. >5)
+```
+
+
+Reduce and accumulate - 
+```{r}
+age = tibble(name = 'John', age = 30)
+sex = tibble(name = c('Mary','John'), sex = c('M','F'))
+trt = tibble(name = 'Mary', treatment = 'A')
+
+dfs = list(age, sex, trt)
+
+dfs %>% reduce(full_join)
+
+
+#or maybe you have a list of vectors and you want to find the intersection
+
+vs = list(
+  c(1,3,5,6,10),
+  c(1,2,4,5,6,10),
+  c(1,2,3,4,9,10)
+)
+
+vs %>%
+  reduce(union)
+
+
+```
+
+
+

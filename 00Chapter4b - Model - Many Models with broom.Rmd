@@ -1,0 +1,479 @@
+---
+title: "Many models with purrr and broom"
+output: html_notebook
+---
+
+prerequisites
+```{r}
+library(modelr)
+library(tidyverse)
+```
+```{r}
+library(gapminder)
+```
+
+We are going to focus on just three variables to answer the question how does life expectancy change over time of year for each country
+```{r}
+gapminder
+```
+
+A good place to start is with a plot
+```{r}
+ggplot(gapminder, aes(year, lifeExp, grouo = country))+
+  geom_line(alpha = .3)
+```
+
+There is a strong signal that makes it hard to see subtler trends. Well tease these factors apart by fitting a model with linear trend.
+
+This is to do this with a single counry
+Create a model
+
+```{r}
+nz = filter(gapminder, country == 'New Zealand')
+
+nz_mod = lm(lifeExp~year, data = nz)
+nz %>%
+  add_predictions(nz_mod) %>%
+  ggplot(aes(year,pred))+
+  geom_line(labels = 'model')+
+  ggtitle('Linear trend')+
+  geom_line(aes(y = lifeExp, labels = 'Data'))+
+  theme()
+```
+Plot the residuals
+```{r}
+nz %>%
+  add_residuals(nz_mod) %>%
+  ggplot(aes(year, resid))+
+  geom_hline(yintercept = 0, color = 'white')+
+  geom_line()+
+  ggtitle('residuals')
+```
+
+
+How can we fit the data to every country?
+
+Youve seen it before and the way is to use code with a function and repeat using a map function. This problem is structured a little differently to what youve seen before. Instead of repeating actions for each variable, we want to repeat action for each country,  a subset of rows. To do that we need a new data structure: the nested dataframe. We need to first group and nest it
+
+```{r}
+by_country = gapminder %>%
+  group_by(country, continent) %>%
+  nest()
+
+by_country
+```
+
+
+
+This creates a dataframe that has one row per group. The data column is a little tricky because it is a moderately complicated list. Unfortunately using str() is not recommended as it often produce a very long output, but if you pluck out a single element from the data column, youll see that it contains all the data for that country
+
+```{r}
+by_country$data[[1]]
+```
+
+Now that we have nested our dataframes, we can now fit some models
+List-columns
+```{r}
+#create a function for model
+country_model = function(df){
+  lm(lifeExp ~ year, data = df)
+}
+#using map
+models = map(by_country$data, country_model)
+
+
+#it is better to store it in a column. 
+
+by_country = by_country %>%
+  mutate(models = map(data, country_model))
+
+by_country
+```
+
+
+This has big advantages because all related models are stored together.
+
+You dont need to manually keep them in sync when you filter or arrange
+```{r}
+by_country %>%
+  filter(continent == 'Europe')
+```
+
+
+Unnesting
+
+To compute for residuals we need to call add residuals
+
+```{r}
+by_country = by_country %>%
+  mutate(resids = map2(data, models, add_residuals))
+```
+
+
+But how can you plot a list of dataframes. we use unnest()
+
+
+```{r}
+resids = by_country %>%
+  unnest(resids)
+```
+
+
+Now that we have a regular dataframe we can plot the residuals
+
+```{r}
+resids %>%
+  ggplot(aes(year, resid))+
+  geom_line(aes(group = country), alpha = 1/3)+
+  geom_smooth(se = F)
+```
+
+Faceting by continent
+
+```{r}
+resids %>%
+  ggplot(aes(year, resid))+
+  geom_line(aes(group = country), alpha = 1/3)+
+  geom_smooth(se = F)+
+  facet_wrap(~continent)
+```
+
+Very large residuals in AFrica and Asia. The model is not fitting well. 
+
+Model quality - Instead of looking at the residuals from the model, we could look at general measurements of model quality. Broom package provides a general set of functions to turn models into tidy data. broom::glance() to extract model quality metrics
+
+
+```{r}
+broom::glance(nz_mod)
+```
+
+We can use mutate and unnest to create a dtaframe with a row for each country
+```{r}
+library(broom)
+
+by_country %>%
+  mutate(glance = map(models, glance))
+```
+
+
+This is not the output that we want, because it still includes all the list columns. To suppress these columns we use .drop = T
+
+```{r}
+glance = by_country %>%
+  mutate(glance = map(models, glance)) %>%
+  unnest(glance)
+
+```
+
+```{r}
+glance = glance %>%
+  select(-models, -resids, -data)
+
+```
+
+We can look at models that dont fit well
+
+```{r}
+glance %>%
+  arrange(r.squared)
+```
+
+Plot observations
+
+```{r}
+glance %>%
+  ggplot(aes(continent, r.squared))+
+  geom_jitter()
+```
+
+Pull out bad countries
+
+```{r}
+bad_fit = glance %>%
+  filter(r.squared <= .25)
+
+#use semijoin from the original data
+
+gapminder %>%
+  semi_join(bad_fit, by ='country') %>%
+  ggplot(aes(year, lifeExp, color = country))+
+  geom_line()
+```
+
+
+It is because theres a sudden drop in life expectancy in Rwanda
+
+Exercise
+1. A linear trend might be too simple. Can you do better with quadratic polynomial. How can you interpret the coefficients of the quadratic
+```{r}
+country_model2 = function(df){
+  lm(lifeExp ~ poly(year - median(year), 2), data = df)
+}
+
+by_country2 = gapminder %>%
+  group_by(country, continent) %>%
+  nest()
+
+by_country2 = by_country2 %>%
+  mutate(models = map(data, country_model2))
+
+by_country2 = by_country2 %>%
+  mutate(resids = map2(data, models, add_residuals))
+
+#use glance to create a residuals jitter
+
+by_country2 %>%
+  unnest(resids) %>%
+  ggplot(aes(year, resid, group = country))+
+  geom_line(alpha = 1/3)+
+  geom_smooth(group = 1)
+```
+
+
+List columns
+
+explore list column data structure in more detail. list columns are implicit in the definition of the dataframe. a dataframe is named list of equal vectors. a list is a vector. Base R does not make it easy to create list columns
+
+```{r}
+data.frame(x = list(1:3, 3:5))
+```
+
+You can prevent data.frame from doing this using I()
+
+```{r}
+data.frame(
+  x = I(list(1:3, 3:5)),
+  y = I(c('1,2','3,4,5'))
+  )
+```
+
+Tibble alleviates this problem by being lazy, Tibble does not modify its inputs and by providing a better print method
+
+```{r}
+tibble(
+  x = list(1:3, 3:5),
+  y = c('1,2','a,b,c')
+)
+```
+
+list columns are often most useful as an intermediate data structure. they are hard to work with directly because R functions work with atomic vectors or dataframe. but the advantage of keeping related items together in a dataframe with less hassle
+
+Generally there are three parts of an effective list-column pipeline
+
+- You create a list column using one of nest, summarize, list, or mutate + a map function
+- you create intermediate list columns by transforming existing list columns with map, map2, or pmap
+- you simplify the list column back down to a dataframe or atomic vector.
+
+
+Creating list columns
+
+Typically you wont create a list column with tibble, instead you create them from regular columns using one of three methods
+
+- tidyr::nest() to convert a grouped dataframe into a nested dataframe where you have a list column of dataframes
+- mutate() - and vectorized functions and return a list
+- summarize() - and summary functions that return a multiple results
+
+Generally when creating a list column, you should make sure theyre homogeneous: each element should contain the same type of thing.
+
+### With nesting
+
+nest creates a nested dataframe which is a dataframe with a list columnn of dataframes. each row is a meta-observation. and the list column of dataframes gives the individual observations and make up the meta observation
+
+there are two ways to use nest
+
+```{r}
+gapminder %>%
+  group_by(country, continent) %>%
+  nest()
+
+#you can also use it to an ungrouped dataframe, specifying which colums you want to nest
+
+gapminder %>%
+  nest(year:gdpPercap)
+```
+
+### From vectorized functions
+
+Some useful functions take an atomic vector and return a list. for exmaple stringr::split(), which takes a character vector and returns a list of character vectors
+
+```{r}
+df = tribble(
+  ~x1,
+  'a,b,c,',
+  'd,e,f,g'
+)
+
+df %>%
+  mutate(x2 = stringr::str_split(x1, ',')) %>%
+  unnest(x2)
+```
+
+
+```{r}
+?separate
+df %>%
+  separate(x1, into = c('x2','x3','x4','x5'), sep = ',')
+```
+
+Another function of this pattern is using map(), map2(), and pmap(), we could also use invoke map
+
+```{r}
+sim = tribble(
+  ~f, ~params,
+  'runif', list(min = -1, max = -1),
+  'rnorm', list(sd =5),
+  'rpois', list(lambda = 10)
+)
+
+sim %>%
+  mutate(sims = invoke_map(f, params, n = 10))
+```
+
+
+From multivalued summaries
+
+One restriction of summarize is that it only works with summary functions that return a single value. that means you cant use it with functions like quantile that return a vector of arbitrary length
+
+
+```{r}
+mtcars %>%
+  group_by(cyl) %>%
+  summarise(q= quantile(mpg))
+```
+
+
+```{r}
+mtcars %>%
+  group_by(cyl) %>%
+  summarise(q = list(quantile(mpg)))
+```
+
+to make useful results with unnest, youll also need to capture probabilities
+
+
+```{r}
+probs = c(0.01, .25, .5, .75, .99)
+mtcars %>%
+  group_by(cyl) %>%
+  summarise(p = list(probs), q = list(quantile(mpg, probs))) %>%
+  unnest()
+```
+
+
+From a named list
+
+What do you do if you want to iterate over both content of a list and elements. Instead of jamming everything into one object, its easier to make a dataframe: one column can contain the elements and one column contain the list. one easy way to create such data frame is to use enframe
+
+```{r}
+x = list(
+  a = 1:5,
+  b = 3:4,
+  c = 5:6
+)
+
+df = enframe(x)
+df
+```
+
+The advantage of this structure is that it generalizes a straightforward way - names are useful if you have a character vector of metadata.
+
+Now if you want to iterate over names and values, you can use map2
+
+```{r}
+df %>%
+  mutate(sumry = map2_chr(name, value, ~stringr::str_c(.x, ': ', .y[1])))
+```
+
+Exercises
+functions that take an atomic vector and return a list
+```{r}
+library(stringr)
+
+str_split(sentences[1:3], ' ')
+```
+
+useful summary functions like quantile that return multiple values
+
+```{r}
+mtcars %>%
+  group_by(cyl) %>%
+  summarise(range = list(range(mpg))) %>%
+  unnest()
+
+?spread
+```
+
+Simplifying list columns
+
+to apply the techniques in data manipulation and data visualization youve learned this book, youll need to simplify the list column back to regular column or set of columns. The technique depends on  wether you want a single value per element or multivalue
+
+if you want a single value you can use mutate with  map_lgl, int, dbl, chr to create atomic vector
+if you want many values you can use unnest()
+
+List to vector - if you can reduce your list column to an atomic vector then it will be a regular column. For example you can summarize an object with its type and length
+
+```{r}
+df = tribble(
+~x, 
+letters[1:5],
+1:3,
+runif(5)
+)
+
+df %>%
+  mutate(
+    type = map_chr(x, typeof),
+    length = map_int(x, length)
+  )
+```
+
+Dont forget about the map* shortcuts - you can use map_chr(x, apple) to extract string stored in apple for each element of x. this is useful for pulling apart nested list into a regular column. use .null argument to provide a value to use if the element is missing
+
+```{r}
+df = tribble(
+  ~x, 
+  list(a =1, b =2),
+  list(a = 2, c = 4)
+)
+
+df %>%
+  mutate(
+    a = map_dbl(x, 'a'),
+    b = map_dbl(x, 'b', .null = NA)
+  )
+```
+
+Unnesting - works by repeating the regular columns once for each element of list columns. For example, in the following very simple exmaple, we repeat the first row four times and in the second row once
+
+```{r}
+tibble(
+  x = 1:2,
+  y = list(1:4, 1)
+) %>%
+  unnest(y)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

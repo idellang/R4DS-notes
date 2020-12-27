@@ -1,0 +1,525 @@
+---
+title: "Graphics for communication with ggplot2"
+author: "Me"
+date: "7/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+```
+
+#Label
+The easiest way to start when tuning an exploratory graphics into expository graphics is with good labels. 
+
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = class))+
+  geom_smooth(se = F)+
+  labs(title = paste('Fuel efficiency generally decreases with',
+                     'engine size'))
+```
+
+The purpose of plot title is to summarize the main finding. Avoid titles that describe what the plot is. If you add more texts, there are two other useful labels that you can use: subtitle and caption. 
+Subtitle - adds additional detail in a smaller font beneath the title
+caption - adds text at the bottom right of the plot often used to describe the plit
+
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = class))+
+  geom_smooth(se = F)+
+  labs(
+    title = 'Fuel efficiency generally decreases with engine size',
+    subtitle = 'Two seaters (sports cars) are an exception because of their light weight',
+    caption = 'Data from fueleconomy.gov',
+    color = 'Car type',
+    y = 'Highway fuel economy',
+    x = 'Engine displacement'
+  )
+```
+
+
+Its possible to use mathematical equations instead of of text strings. just switch out " " with quote and check the available options in ?plotmath
+
+```{r}
+df = tibble(
+  x = runif(10),
+  y = runif(10)
+)
+
+?plotmath
+
+ggplot(df, aes(x,y))+
+  geom_point()+
+  labs(
+    x = quote(sum(x[i]^2, i == 1, n)),
+    y = quote(alpha + beta + frac(delta, theta))
+  )
+```
+
+Create one plot with customized title, subtitle, caption, x, y, and color labels
+
+```{r}
+library(forcats)
+ggplot(mpg, aes(x = fct_reorder(class, hwy), y = hwy))+
+  geom_boxplot()+
+  labs(
+    title = 'Compact cars have > 10 Hwy MPG than pickup trucks',
+    subtitle = 'Comparing the median highway in each class',
+    caption = 'Data from fuel economy.gov',
+    x = 'Car class',
+    y = 'Highway miles per gallon'
+  )+
+  coord_flip()
+```
+
+# Annotations
+
+It is often useful to label individual observations or group of observations. The first tool at your disposal is geom_text. It is similar to geom_point and has additional aesthetic: label. This makes possible to add textual labels to your plots
+
+There two possible sources of labels. First you might have a tibble that provides labels. 
+
+Pull out the most efficient cars in each class and label it in the plot
+
+
+
+```{r}
+best_class = mpg %>%
+  group_by(class)%>%
+  filter(row_number(desc(hwy)) == 1) # top highway per class
+
+ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = class))+
+  geom_text(aes(label = model), data = best_class)
+```
+This is hard to read because labels overlap each other and with the points. We can make things a little easier by switching to geom_label which draws rectangle behind the text. We also use nudge_y to move labels slightly above the points
+
+```{r}
+ggplot(mpg,aes(displ, hwy))+
+  geom_point(aes(color = class))+
+  geom_label(
+    aes(label = model),
+    data = best_class,
+    nudge_y = 2,
+    alpha = .5,
+  )
+```
+
+That helps a little bit but if you look closely in the top lefthand corner, youll notice that there are two labels practically on top of each other. This happens because the highway mileage and displacement are for the best cars in the compact and subcompact category. Instead we can use ggrepel which automatically adjust the labels
+
+```{r}
+ggplot(mpg,aes(displ, hwy))+
+  geom_point(aes(color = class))+
+  geom_point(size = 3, shape = 1, data = best_class)+
+  ggrepel::geom_label_repel(
+    aes(label = model),
+    data = best_class
+  )
+```
+
+Another technique used here is I added a layer of large, hollow points to highlight the points ive labeled
+
+You can sometimes use the same idea to replace the legend with labels directly on the plot. 
+
+```{r}
+class_avg = mpg %>%
+  group_by(class) %>%
+  summarise(
+    displ = median(displ),
+    hwy = median(hwy)
+  )
+
+ggplot(mpg, aes(displ, hwy, color = class))+
+  ggrepel::geom_label_repel(aes(label = class),
+                            data = class_avg,
+                            size = 6, 
+                            label.size = 0,
+                            segment.colour = NA)+
+  geom_point()+
+  theme(legend.position = 'None')
+```
+
+Alternatively you might just wanna add a single label to the plot, but you still need to create a dataframe. Often you want the label in the corner of the plot so its convenient to create a new data frame using summarize to compute maximum values of x and y
+
+```{r}
+label = mpg %>%
+  summarise(displ = max(displ),
+            hwy = max(hwy),
+            label = 'Increasing engine size is\nrelated to decreasing fuel economy')
+
+ggplot(mpg, aes(displ, hwy))+
+  geom_point()+
+  geom_text(
+    aes(label = label),
+    data = label,
+    vjust = 'top',
+    hjust = 'right'
+  )
+
+
+```
+
+If you want the text exactly on the borders of the plot you can use +Inf and -Inf since we are no longer using positions from mpg, we can use tibble
+
+```{r}
+label = tibble(
+  displ = Inf,
+  hwy = Inf,
+  label = 'Increasing engine size is \nrelated to decreasing fuel economy'
+)
+
+ggplot(mpg, aes(displ, hwy))+
+  geom_point()+
+  geom_text(
+    aes(label = label),
+    data = label,
+    vjust = 'top',
+    hjust = 'right'
+  )
+```
+In addition to geom_text, you have many other geoms in ggplot to help you annotate
+
+geom_hline() and geom_vline() to add reference lines. 
+geom_rect = to draw rectangle around points of interest. the boundaries of the rectangle are defined by xmin, xmax, ymin, and ymax
+geom_segment() with arrow argument to draw attention of point with an arrow. use x and y aesthetic to defien the starting location and xend and yend to define end location
+
+### exercises
+
+1. use geom_text with infinite positions to place four text at the corners of the plot
+
+```{r}
+label <- tribble(
+  ~displ, ~hwy, ~label, ~vjust, ~hjust,
+  Inf, Inf, "Top right", "top", "right",
+  Inf, -Inf, "Bottom right", "bottom", "right",
+  -Inf, Inf, "Top left", "top", "left",
+  -Inf, -Inf, "Bottom left", "bottom", "left"
+)
+
+label
+
+ggplot(mpg, aes(displ, hwy))+
+  geom_point()+
+  geom_text(aes(label = label, vjust = vjust, hjust = hjust), data = label)
+```
+
+How do labels with geom_text interact with faceting. How can you add a label to a single facet
+
+```{r}
+label <- tibble(
+  displ = Inf,
+  hwy = Inf,
+  label = "Increasing engine size is \nrelated to decreasing fuel economy."
+)
+
+ggplot(mpg, aes(displ, hwy)) +
+  geom_point() +
+  geom_text(aes(label = label),
+    data = label, vjust = "top", hjust = "right",
+    size = 2
+  ) +
+  facet_wrap(~class)
+```
+If the labels are not specified then the text is drawn to all
+
+add a column of class
+
+```{r}
+label <- tibble(
+  displ = Inf,
+  hwy = Inf,
+  class = "2seater",
+  label = "Increasing engine size is \nrelated to decreasing fuel economy."
+)
+
+ggplot(mpg, aes(displ, hwy)) +
+  geom_point() +
+  geom_text(aes(label = label),
+    data = label, vjust = "top", hjust = "right",
+    size = 2
+  ) +
+  facet_wrap(~class)
+```
+
+```{r}
+label <- tibble(
+  displ = Inf,
+  hwy = Inf,
+  class = unique(mpg$class),
+  label = str_c("Label for ", class)
+)
+
+ggplot(mpg, aes(displ, hwy)) +
+  geom_point() +
+  geom_text(aes(label = label),
+    data = label, vjust = "top", hjust = "right",
+    size = 3
+  ) +
+  facet_wrap(~class)
+```
+
+### Scales 
+The third way you can make your plot better is adjust the scales. Scales control the mapping from data values to things you can perceive. ggplot2 automatically adds the scales for you.
+
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = class))+
+  scale_x_continuous()+
+  scale_y_continuous()+
+  scale_color_discrete()
+  
+```
+
+You might want to override the default scales for two reasons:
+- You might want to tweak the default scales to change breaks on axes and key labels on the legend
+- You might want to replace the scale altogether and use a different algorithm. 
+
+### Axis ticks and Keys
+
+There are two primary arguments that affect the apperance of ticks on the axes and keys on the legend: breaks and labels. breaks control the position of the ticks or the values associated with the keys. labels controls the text label associated with each ticks The most common use of breaks is to override the default choice
+
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point()+
+  scale_y_continuous(breaks = seq(15,40, by = 5))
+```
+
+You can use labels the same way ( a character vector has the same length as breaks), but you can also set it to null
+
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point()+
+  scale_y_continuous(labels = NULL)+
+   scale_x_continuous(labels = NULL)
+```
+
+You can also use breaks and labels to control the appearance of legends. collectively axes and legends are called guides. Axes are used for x and y aesthetics and legends are used for everything else
+
+Another use of breaks is when you have relatively few data points and want to highlight exactly where the observations occur. 
+
+```{r}
+presidential %>%
+  mutate(id = 33 + row_number()) %>%
+  ggplot(aes(start,id))+
+  geom_point()+
+  geom_segment(aes(xend = end, yend = id))+
+  scale_x_date( NULL, 
+                breaks = presidential$start,
+                date_labels = "`%y"
+    
+  )
+
+?scale_x_date
+```
+
+### Legend Layout
+You will most often use breaks and labels to tweak the axes. While they both also works for legends, there are few other techniques you are more likely to use
+
+to control the overall position of the legend, you need to use theme() setting. Themes control the non_data part of the graph.
+
+```{r}
+base = ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = class))
+
+base + theme(legend.position = 'left')
+base + theme(legend.position = 'top')
+base + theme(legend.position = 'bottom')
+```
+
+To control the display of individual legends, use guides() along with the guide_legned() or guide_colorbar(). The following example shows two important settings: controlling the number of rows and overriding one of the aesthetics to make the points bigger. This is particularly useful when you have low alpha to display
+
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = class))+
+  geom_smooth(se = F)+
+  theme(legend.position = 'bottom')+
+  guides(
+    color = guide_legend(
+      nrow = 1,
+      override.aes = list(size = 4)
+    )
+  )
+```
+
+### Replacing a scale
+
+There are two types of scales youre most likely want to switch out: continous and color scales. Fortunately same principles apply for all other aesthetics. Once youve mastered position and color youll be able to quickly pickup other scale replacements
+
+
+Disadvnatge of transfomration is that the axes are now labeled with the transformed values making it hard to interpret the plot. instead of applying transformation in aesthetic map we can use it on sclae
+
+```{r}
+ggplot(diamonds, aes(carat, price))+
+  geom_bin2d()+
+  scale_x_log10()+
+  scale_y_log10()
+```
+
+Another scale that is frequently customized is color. The default categorical scale picks color that are evenly spaced around color wheel. Use alternatives are the colorbrewer scales 
+
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = drv))+
+  scale_color_brewer(palette = 'Dark2')
+```
+
+When you have a predefined mapping between values and colors, use scale_color_manual. For example if we want to map presidential party to color, we want to use the standard mapping for red for republicans and blue for democrats
+
+```{r}
+presidential %>%
+  mutate(id = 33 + row_number()) %>%
+  ggplot(aes(start, id, color = party))+
+  geom_point()+
+  geom_segment(aes(xend = end, yend = id))+
+  scale_colour_manual(
+    values = c(Republican = 'red', Democratic = 'blue')
+  )
+```
+
+For continous color you can use built in scale_color_gradient or scale_fill_gradient. If you have diverging scale you can use scale_color_gradient2(). 
+
+Another option is scale_color_viridis provided by viridis package. 
+
+```{r}
+df = tibble(
+  x = rnorm(1000),
+  y = rnorm(1000)
+)
+
+ggplot(df, aes(x,y))+
+  geom_hex()+
+  viridis::scale_fill_viridis()
+```
+
+Exercises
+
+```{r}
+ggplot(df, aes(x, y)) +
+  geom_hex() +
+  scale_fill_gradient(low = "white", high = "red") +
+  coord_fixed()
+```
+
+The first argument to scale is label.
+
+```{r}
+ggplot(mpg, aes(displ, hwy)) +
+  geom_point(aes(colour = class)) +
+  geom_smooth(se = FALSE) +
+  scale_x_continuous("Engine displacement (L)") +
+  scale_y_continuous("Highway fuel economy (mpg)") +
+  scale_colour_discrete("Car type")
+```
+
+### Zooming
+
+There are three ways to control the plot limits:
+- adjusting what the data is plotted
+- setting the limits in each scale
+- setting xlim and ylim in coord cartesian
+
+To zoom in it is generally best to use coord_cartesian
+```{r}
+ggplot(mpg, aes(displ, hwy)) +
+  geom_point(aes(colour = class)) +
+  geom_smooth()+
+  coord_cartesian(xlim = c(5,7), ylim = c(10,30))
+```
+
+
+```{r}
+mpg %>%
+  filter(displ>=5, displ<=7, hwy >=10, hwy<=30) %>%
+  ggplot(aes(displ, hwy))+
+  geom_point(aes(color = class))+
+  geom_smooth()
+```
+
+
+You can also set the limits on individual scales. Reducing the limits is basically equivalent to subsetting the data. It is generally useful if you want to expand the limits, for example to match the scale across different plots. for example if we want to extract to classes of cars and plot them separately. it's difficult to compare plots because all three scales(x,y, and color) have different ranges
+
+```{r}
+suv = mpg %>%
+  filter(class == 'suv')
+
+compact = mpg %>% filter(class == 'compact')
+
+ggplot(suv, aes(displ, hwy, color = drv))+
+  geom_point()
+
+ggplot(compact, aes(displ, hwy, color = drv))+
+  geom_point()
+```
+
+One way to overcome this problem is to share scales across multiple plots
+```{r}
+x_scale = scale_x_continuous(limits = range(mpg$displ))
+y_scale = scale_y_continuous(limits = range(mpg$hwy))
+col_scale = scale_color_discrete(limits = unique(mpg$drv))
+```
+
+
+```{r}
+ggplot(suv, aes(displ, hwy, color = drv))+
+  geom_point()+
+  x_scale+
+  y_scale+
+  col_scale
+
+ggplot(compact, aes(displ, hwy, color = drv))+
+  geom_point()+
+  x_scale+
+  y_scale+
+  col_scale
+```
+
+### themes 
+Finally you can customize the non data elements of your plot with theme
+
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = class))+
+ geom_smooth()+
+  theme_minimal()
+```
+
+#saving your plots
+use ggsave
+```{r}
+ggplot(mpg, aes(displ, hwy))+
+  geom_point(aes(color = class))+
+ geom_smooth()+
+  theme_minimal()
+
+ggsave('my_plot.pdf')
+```
+
+Figure sizing
+
+The biggest challenge in graphics in R markdown is getting your figures right size and shape. there are five main points that control the figure sizing. fig.width, fig,height, fig.asp, out.width, and out,height
+
+i find it pleasing for plots to have a consistent width. fig.width = 6 is 6 inches, fig.asp = .618 is golden ratio. 
+I default out.width = '70%' and fig.align = center that give plots room to breathe. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

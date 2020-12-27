@@ -1,0 +1,188 @@
+---
+title: "Functions"
+output: html_notebook
+---
+
+Writing functions has advantages over using copy paste
+1. makes it easier to understand
+2. you only need to update code in one place
+3. eliminate chance of making incidental mistakes
+
+
+When should you write a function - whenever you copied or pasted a block of code more than twice
+```{r}
+df = tibble(
+  a = rnorm(10),
+  b = rnorm(10),
+  c = rnorm(10),
+  d = rnorm(10)
+)
+
+df$a = (df$a - min(df$a, na.rm = T)) / max(df$a, na.rm = T) - min(df$a, na.rm = T)
+
+```
+
+
+3 key steps to creating a new function
+
+1. Pick a name of function
+2. list inputs or arguments to the function inside the function
+3. you place the code in the body of the function
+
+
+```{r}
+rescale = function(x){
+  rng = range(x, na.rm = T, finite = T)
+  (x - rng[1])/ (rng[2] - rng[1])
+}
+
+x = c(1:10, Inf)
+
+rescale(x)
+```
+Exercise
+```{r}
+#rewrite the function so that infinite is scaled to 1
+rescale = function(x){
+  rng = range(x, na.rm = T, finite = T)
+  (x - rng[1])/ (rng[2] - rng[1])
+  x[x == Inf] = 1
+  x
+}
+
+x = c(1:10, NA, NA)
+rescale(x)
+
+#practice following snippets into functions
+mean(is.na(x))
+
+new_mean = function(x){
+  y = x[is.na(x)]
+  length(y)/length(x)
+}
+new_mean(x)
+mean(is.na(x))
+
+standardize = function(x){
+  y = x[!is.na(x)]
+  sum_y = sum(y)
+  x/sum_y
+}
+
+sum(standardize(x), na.rm = T)
+
+x = c(NA, 1, 2, 5, 'x', NA)
+y = c(NA, 1,2,3,'y', 0)
+
+is.na(x) & is.na(y)
+```
+
+if else exercise
+```{r}
+library(lubridate)
+
+
+
+greet = function(time = now()){
+  if (hour(time) >= 12){
+    print('Good afternoon')
+  }
+  else if (hour(time) >= 6 & hour(time) <12){
+    print('Good morning')
+  }
+  else {
+    print('goodnight')
+  }
+}
+
+greet(time = hms('08:15:02'))
+
+
+fizzbuzz = function(num){
+  if (num%%3 == 0 & num%%5 == 0){
+    print('fizzbuzz')
+  }
+  else if (num%%3 == 0){
+    print('fizz')
+  }
+  else if (num%%5 == 0){
+    print('buzz')
+  }
+  else{
+    num
+  }
+}
+
+fizzbuzz(16)
+
+#what happens if you use switch in numeric. 
+x = c('apple','banana','cantaloupe')
+switch(1, x)
+switch(3, 'apple','banana','cantaloupe')
+
+x = 'e'
+
+switch(x,
+       a = ,
+       b = 'ab',
+       c =,
+       d = 'cd')
+
+
+```
+
+
+dot dot dot - many functions takes arbitrary inputs
+```{r}
+commas = function(...){
+  str_c(..., collapse = ',')
+}
+
+commas(letters[1:25])
+
+commas(letters[1:5], collapse = '-')
+```
+
+pipeable functions - there are two main types of pipeable functions
+
+transformation functions - theres a clear primary object that is passed as the first argument, and modified version is returned by the function
+
+side effect functions - called to perform an action like drawing a plot or saving a file. should invisible return the first argument so they are not printed by default, but are still pipeable
+
+```{r}
+show_missings = function(df){
+  n = sum(is.na(df))
+  cat('Missing values: ', n, '\n', sep = '')
+  invisible(df)
+}
+
+show_missings(mtcars)
+
+mtcars %>%
+  show_missings() %>%
+  mutate(mpg = ifelse(mpg<20, NA, mpg)) %>%
+  show_missings()
+
+?ifelse
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

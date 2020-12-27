@@ -1,0 +1,490 @@
+---
+title: "Data transformation with dplyr"
+output: html_notebook
+---
+
+Prerequisites
+```{r}
+library(nycflights13)
+warnings()
+
+library(tidyverse)
+```
+
+
+```{r}
+head(flights)
+?flights
+
+View(flights) # to open in new window
+
+```
+
+#FILTER ROWS WITH FILTER
+```{r}
+#Filter allos you to subset observations based on their value. Filter never modify the dataframe
+
+#select flights on january first
+jan_flights = filter(flights, month == 1, day == 1)
+jan_flights
+
+
+#comparisons
+#flights that departed on november or december
+filter(flights, month == 12 | month == 11)
+filter(flights, month %in% c(11,12))
+
+#simplify comparisons using de morgans law
+#flights that were not delayed by more than 2 hrs
+filter(flights, !(dep_delay>120 | arr_delay > 120))
+
+```
+
+Missing values
+```{r}
+#if you want to know if a value is missing use is.na()
+x = NA
+is.na(x)
+
+logic = c(1,2,NA,1,3,NA)
+logic[is.na(logic)]
+
+#filter only includes condition that is true. it excludes both FALSE and NA. You need to ask them explicitly
+df = tibble(x = c(1,NA,3))
+df
+filter(df, x > 1)
+filter(df, is.na(x)| x >= 1)
+```
+
+#Exercise
+```{r}
+#had an arrival delay of two or more hours
+
+filter(flights, arr_delay >= 120) %>%
+  glimpse()
+
+#flew to houston
+filter(flights, dest %in% c('HOU','IAH'))
+
+#operated by United, American, or Delta
+filter(flights, carrier %in% c('UA','AA','DL'))
+
+#departed in summer: june, july, august
+filter(flights, month %in% c(6,7,8))
+
+#arrived more than 2 hrs late but ddnt leave late
+filter(flights, arr_delay > 120 & dep_delay <= 0)
+
+#departed between midnight and 6 am
+filter(flights, dep_time >= 00 & dep_time <= 600)
+
+#what does between() do.
+
+filter(flights, between(flights$dep_time, 00, 600))
+filter(flights, between(flights$month, 6, 8))
+
+#how many flights have missing dept time
+flights[is.na(flights$dep_time),]
+filter(flights, is.na(dep_time))
+```
+#Arrange rows with arrange()
+```{r}
+#arrange rearranges row. 
+#works like sort
+arrange(flights, carrier, desc(month), desc(day)) 
+
+#use desc to reorder a column in descending order
+arrange(flights, desc(arr_delay))
+
+#missing values are always sorted in the end
+df = tibble(x = c(5,2,-3, NA))
+arrange(df, desc(x))
+```
+#Exercises
+```{r}
+#arrange to sort missing values at the start
+arrange(flights, desc(is.na(flights$dep_time)))
+
+#sort to find the most delayed flights and flights that left the earliest
+arrange(flights, desc(dep_delay))
+
+#find the fastest flights
+arrange(flights, air_time/distance)
+
+#which flight traveled the longest
+arrange(flights, desc(air_time))
+
+```
+#Select colums with select
+```{r}
+#select columns by name
+select(flights, year, month, day)
+
+#select columns between year and day
+select(flights, year:day)
+
+#select columns except year to day
+select(flights, -(year:day))
+select(flights, -year, - day, - dep_delay) #- means do not include
+
+#starts with and ends with
+select(flights, starts_with('arr'))
+
+#contains
+?flights
+select(flights, contains('_'))
+
+#rename is a variant of select
+rename(flights, tail_num =  tailnum)
+
+#everything() helper
+select(flights, time_hour, air_time, day, everything())
+```
+
+#Exercise
+```{r}
+#select deptime, dep delay, arrtime, arr delay
+select(flights, contains('arr'), contains('dep'), -contains('sched'))
+
+#what if you include multiple names
+select(flights, arr_time, arr_time, arr_time) #isa lang yung lalabas
+
+#what does one_of() function do
+vars = c('year','month','day','dep_delay','arr_delay','carrier','xx')
+select(flights, one_of(vars)) # parang in
+
+select(flights, contains('TIME',ignore.case = F))
+?select
+```
+#Add new variables with mutate
+```{r}
+flights_sml = select(flights, year:day, ends_with('delay'), distance, air_time)
+
+#create new columns
+mutate(flights_sml, gain = arr_delay - dep_delay, speed = distance/air_time * 60) # does not change the dataframe
+
+#if you only want to keep new variables use transmute
+transmute(flights_sml, gain = arr_delay - dep_delay, speed = distance/air_time * 60)
+
+#useful creation functions
+#compute hour and minute from dep_time
+transmute(flights, hour = dep_time%/% 100, minute = dep_time%%100)
+
+#offsets
+x = 1:10
+lag(x)
+lead(x, 2)
+
+#cumulative and rolling aggregates
+cumsum(x)
+cumprod(x)
+cummin(x)
+cummean(x)
+
+#ranking
+y = c(1,2,2,NA,3,4)
+min_rank(y) #gives ranking
+min_rank(desc(y))
+
+row_number(y)
+?row_number
+?dense_rank
+percent_rank(y)
+```
+#EXERCISE
+```{r}
+#transmute deptime to minutes
+transmute(flights, dep_time_min = dep_time%/%100 * 60 + dep_time%%100)
+
+#compare air time with arr_time - dep_time
+mutate(select(flights, air_time, arr_time, dep_time), computed_air_time = (arr_time%/%100 * 60 + arr_time%%100) - (dep_time%/%100 * 60 + dep_time %%100))
+
+#compare dep_time, sched_dep_time, and dep_delay. how would you expect those numbers to be related
+select(flights, dep_time, sched_dep_time, dep_delay)
+
+#find the most 10 delayed ranks using  ranking 
+
+?min_rank
+arrange(mutate(select(flights, arr_delay, dep_delay, everything()), rank = min_rank(dep_delay)), rank)
+
+#what does 1:3 + 1:10 return
+1:3 + 1:12
+
+#what trigonometric functions does R provide
+?Trig
+```
+
+Grouped summaries with summarize
+```{r}
+#Summarize collapese dataframe to single row
+summarize(flights, delay = mean(dep_delay, na.rm = T))
+
+by_day = group_by(flights, year,month,day)
+summarize(by_day, delay = mean(dep_delay, na.rm = T))
+
+?n() # gives group size
+#combining multiple operatiosn with pipe
+by_dest = group_by(flights, dest)
+by_dest
+delay = summarize(by_dest, count = n(), dist = mean(distance, na.rm = T), delay = mean(arr_delay, na.rm = T))
+
+delay = filter(delay, count > 20, dest != 'HNL')
+
+ggplot(data = delay, mapping = aes(x = dist, y = delay))+
+  geom_point(aes(size = count), alpha = 1/3)+
+  geom_smooth(se = F)
+
+#do the same operation with pipe
+flights %>% group_by(dest) %>%
+  summarize( count = n(), dist = mean(distance, na.rm = T), delay = mean(arr_delay, na.rm = T)) %>%
+  filter(count > 20, dest != 'HNL')
+```
+
+missing values
+```{r}
+flights %>%
+  group_by(year, month, day) %>%
+  summarize(mean = mean(dep_delay, na.rm = T))
+
+#get non cancelled flights
+
+not_cancelled = flights %>%
+  filter(!is.na(dep_delay), !is.na(arr_delay))
+
+not_cancelled %>%
+  group_by(year, month, day) %>%
+  summarize(mean = mean(dep_delay))
+```
+
+Counts
+```{r}
+#whenever you do aggregation, it is always a good idea to include either count = n() or count of non missing values sum(!is.na(x))
+
+delays = not_cancelled %>%
+  group_by(tailnum) %>%
+  summarize(delay = mean(arr_delay))
+
+ggplot(data= delays, mapping = aes(x = delay))+
+  geom_freqpoly(size = 1.5)
+
+#draw a scatterplot of number of flights versus average delay
+delays= not_cancelled %>%
+  group_by(tailnum) %>%
+  summarize(delay = mean(arr_delay, na.rm = T), count = n())
+
+ggplot(data = delays, mapping = aes(x = count, y = delay))+
+  geom_point(alpha = .5)
+
+#when looking at these graphs it is okay to filter low n first
+
+delays %>%
+  filter(count > 25) %>%
+  ggplot(mapping = aes(x = count, y = delay))+
+  geom_point(alpha = .5)
+
+
+
+batting = as_tibble(Lahman::Batting)
+batters = batting %>% 
+  group_by(playerID) %>%
+  summarize(ba = sum(H, na.rm = T)/ sum(AB, na.rm = T), ab = sum(AB, na.rm = T))
+
+batters %>%
+  filter(ab > 100) %>%
+  ggplot(mapping = aes(x = ab, y = ba))+
+  geom_point(alpha = .2)+
+  geom_smooth(se = F)
+```
+Useful summary functions
+```{r}
+#median
+not_cancelled %>%
+  group_by(year, month, day) %>%
+  summarize(avg_delay1 = mean(arr_delay, na.rm = T), 
+            avg_delay2 = mean(arr_delay[arr_delay > 0]),
+            count = n())
+
+#measures of spread sd(x), IQR(x), mad(x)
+
+not_cancelled %>%
+  group_by(dest) %>%
+  summarize(distance_sd = sd(distance)) %>%
+  arrange(desc(distance_sd))
+
+#measures of rank: min(x), quantile(x, .25), max(x)
+
+not_cancelled %>%
+  group_by(year, month, day) %>%
+  summarize(first = min(dep_time),
+           last = max(dep_time))
+
+#measures of position: first(x), nth(x, 2), last(x)
+
+not_cancelled %>%
+  group_by(year, month, day) %>%
+  mutate(r = min_rank(desc(dep_time))) %>%
+  filter(r %in% range(r))
+
+#counts
+#which destination has the most carriers
+not_cancelled %>%
+  group_by(dest) %>%
+  summarize(carriers = n_distinct(carrier)) %>%
+  arrange(desc(carriers))
+
+#count also is a dpylr helper
+not_cancelled %>%
+  group_by(dest) %>%
+  count(tailnum)
+
+#optionally provide a weight variable. use this to count the total number of miles a plane flew
+not_cancelled %>%
+  count(tailnum, wt = distance)
+
+not_cancelled %>%
+  group_by(tailnum) %>%
+  summarize(sum_dist = sum(distance))
+
+#counts and proportions of logical values. sum(x > 10), mean(y == 0). True is converted to 1 and false to 0. sum gives the true x and mean gives the proportion
+
+#how many flights left before 5 am
+not_cancelled %>%
+  group_by(year, month, day) %>%
+  summarize(n_early = sum(dep_time < 500))
+
+#proportion of flights delayed more than an hour
+not_cancelled %>%
+  group_by(year,month, day) %>%
+  summarize(prop_delay = mean(arr_delay > 60))
+
+#grouping by multiple variables
+daily = group_by(flights, year, month, day)
+per_day = summarize(daily, flights = n())
+per_month = summarize(per_day, flights = sum(flights))
+per_year = summarize(per_month, flights = sum(flights))
+
+
+#ungrouping 
+daily %>%
+  ungroup() %>%
+  summarize(flights = n())
+```
+
+#Exercise
+```{r}
+not_cancelled %>%
+  group_by(year, month, day) %>%
+  summarize(mean_arr_delay = mean(arr_delay > 10)) %>%
+  arrange(mean_arr_delay)
+
+#come up with another approach that will give you the same output
+not_cancelled %>%
+  count(dest)
+
+not_cancelled %>%
+  group_by(dest) %>%
+  summarize(count = n())
+
+not_cancelled %>%
+  count(tailnum, wt = distance)
+not_cancelled %>%
+  group_by(tailnum) %>%
+  summarize(dist = sum(distance))
+
+#look at the number of cancelled flights per day, is there a pattern, is the proportion of cancelled flights related to averagedelay
+flights %>%
+  group_by(year, month, day) %>%
+  summarize(cancelled = mean(is.na(dep_time)), mean_delay = mean(dep_delay, na.rm = T)) %>%
+  arrange(desc(cancelled))
+
+#which carrier has the worst delays: can u entangle bad airports vs bad carriers
+
+not_cancelled %>%
+  group_by(carrier) %>%
+  summarize(count = n(), delay = mean(dep_delay)) %>%
+  arrange(desc(delay))
+
+not_cancelled %>%
+  group_by(carrier, dest) %>%
+  summarize(count = n(), delay = mean(arr_delay)) %>%
+  filter(count > 20) %>%
+  group_by(carrier) %>%
+  summarize(delay = mean(delay)) %>%
+  arrange(desc(delay))
+```
+
+Grouped mutates and filter
+```{r}
+#can also do convenient operation with mutate and filter
+
+#worst member in each group
+flights_sml %>%
+  group_by(year, month, day) %>%
+  filter(rank(desc(arr_delay)) < 6)
+
+#find all groups bigger than a threshold
+pop_dest = flights %>%
+  group_by(dest) %>%
+  filter(n() > 365)
+
+#standardize to compute for group metrics
+pop_dest %>%
+  filter(arr_delay > 0) %>%
+  mutate(prop_delay = arr_delay / sum(arr_delay)) %>%
+  select(year:day, dest, arr_delay, prop_delay)
+
+```
+
+Exercise
+```{r}
+#which tail num has the worst on time record
+not_cancelled %>%
+  group_by(tailnum) %>%
+  filter(rank(desc(arr_delay))< 2)
+
+#what time of day should you fly to avoid delays
+
+not_cancelled %>%
+  group_by(hour) %>%
+  summarize(arr_delay = mean(arr_delay, na.rm = T))
+
+#for each destination compute the total minutes of delay
+not_cancelled %>%
+  group_by(dest) %>%
+  summarize(total_delay = sum(dep_delay))
+
+not_cancelled %>%
+  group_by(dest) %>%
+  summarize(min = min(air_time), max = max(air_time)) %>%
+  mutate(diff = max/min)
+
+#flights that are surprisingly fast
+flights %>%
+  mutate(mph = distance/ (air_time / 60)) %>%
+  ggplot(aes(x = mph))+
+  geom_histogram()
+
+#find all destinations that are flown by atleast 2 carriers
+
+flights %>%
+  group_by(dest) %>%
+  mutate(n_carriers = n_distinct(carrier)) %>%
+  filter(n_carriers > 1) %>%
+  group_by(carrier) %>%
+  summarize(n_dest = n_distinct(dest)) %>%
+  arrange(desc(n_dest))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

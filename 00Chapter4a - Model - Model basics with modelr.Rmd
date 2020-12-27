@@ -1,0 +1,715 @@
+---
+title: "Model basics with Model R"
+output: html_notebook
+---
+
+Some notes
+
+There is a pair of ideas you must understand to do inference correctly:
+-Each observation can either be used for exploration or confirmation but not both
+- You can use an observation as many times for exploration but you can only use it once for confirmation
+
+To confirm hypothesis, you must use data independent of the data you used to generate hypothesis.  You can split your data before you begin analysis
+60% goes to training or exploration. you are allowed to do anything with this data
+20% goes to query set - use this data to compare models or visualizations by hand. But you are not allowed to use it as part of an automated process
+20% is test set. You can only use this once to test your final model
+
+
+The goal of model is to provide low dimensional summary of dataset. Use models to partition data into patterns and residuals. Strong patterns will hide subtler trends, well use model to help peel back layers of structure as we explore dataset
+
+There are two parts to a model:
+- first define a family of model to express a precise but generic pattern you want to capture. A pattern might be a curve or straight line. You will express the model family as an equation. y = a1 * x + a2 where x and y are known variables and you vary a1 and a2 to capture different patterns
+- Next is to generate a fitted model finding the model from the family that is closest to your data. This takes a generic model family and makes it specific like y = 3x + 7 
+
+The goal of model is to discover a simple approximation that is useful
+
+
+Prerequisites
+```{r}
+library(tidyverse)
+library(modelr)
+options(na.action = na.warn)
+```
+
+
+
+A simple model
+```{r}
+sim1
+ggplot(sim1, aes(x, y))+
+  geom_point()
+```
+
+Can see a strong pattern in the data. Lets use a model to capture that pattern and make it explicit. The relationship looks like linear. We can use geom_abline() which takes a slope and intercept as parameter.
+
+```{r}
+?abline
+
+models = tibble(
+  a1 = runif(250, -20, 40),
+  a2 = runif(250, -5, 5)
+)
+
+ggplot(sim1, aes(x,y))+
+  geom_abline(data = models, aes(intercept = a1, slope = a2), alpha = 1/4) +
+  geom_point()
+```
+
+There are 250 models on this plot but a lot are really bad. we need to find good models by making precise our intiuition that a good model is close to data. we need a way to quantify between the data and the model. We find the model by finding the values a_0 and a_1 that generate the model with the smallest distance
+
+one easy way to start is finding vertical distance between each point and the model. the distance is just the difference between the y value given by the model(prediction) and the actual value(response). To compute the distance we turn our model family into R function. This takes the model parameters and the data as inputs and give values predicted by the model as output
+```{r}
+model1 = function(a, data){
+  a[1] + data$x * a[2]
+}
+
+model1(c(7, 1.5), sim1)
+```
+
+Next we need some way to compute overall distance between predicted and actual values. One common way is root mean squared deviation. Compute the difference between actual and predicted, square them, average them, and then take the square root. 
+```{r}
+#get distance
+measure_distance = function(mod, data){
+  diff = data$y - model1(mod, data)
+  sqrt(mean(diff^2))
+}
+
+measure_distance(c(7,1.5),sim1)
+```
+Now we can use purr to compute distance for all models defined previously. We need a helper function our distance function expects the model as a numeric vector with length 2
+```{r}
+
+sim1_dist = function(a1, a2){
+  measure_distance(c(a1, a2), sim1) #measure distance between a1 a2 and sim1
+}
+
+?map2_dbl
+models = models %>%
+  mutate(dist = purrr::map2_dbl(a1, a2, sim1_dist))
+```
+
+
+overlay the best 10 models on the data. COlored by -dist, the one with the smallest distance get the brightest color
+```{r}
+sim1
+models
+ggplot(sim1, aes(x,y))+
+  geom_point(size =2, color = 'grey30')+
+  geom_abline(
+    aes(intercept = a1, slope = a2, color = -dist),
+    data = filter(models, rank(dist) <=5)
+  )
+```
+
+We could also think about these models as observations and visualize them with scatterplot of a1 vs a2 colored by dist. we can no longer directly see how model compares with data, but we can see many models at once. Highlighted the 10 best models drawing circles underneath them
+```{r}
+ggplot(models, aes(a1,a2))+
+  geom_point(data = filter(models, rank(dist)<=10),
+             size = 4, color = 'red')+
+  geom_point(aes(color = -dist))
+
+
+```
+
+Instead of trying lots of random models, we could be more systematic and generate evenly spaced grid of points. This is called grid search. I picked the parameters where the best models were in the preceding plot
+
+```{r}
+grid = expand.grid(a1 = seq(-5, 20, length = 25),
+            a2 = seq(1,3, length = 25)) %>%
+  mutate(dist = purrr::map2_dbl(a1,a2, sim_dist1))
+
+grid %>%
+  ggplot(aes(a1,a2))+
+  geom_point(
+    data = filter(grid, rank(dist)<=10),
+    size = 4, color = 'red'
+  )+
+  geom_point(aes(color = -dist))
+```
+
+
+When you overlay the best 10 models back on the original data. they all look pretty good.
+```{r}
+ggplot(sim1, aes(x,y))+
+  geom_point(size = 2, color = 'grey30')+
+  geom_abline(
+    aes(intercept = a1, slope = a2, color = -dist),
+    data = filter(grid, rank(dist)<=10)
+  )
+```
+
+You could only imagine making the grid finer and finer until you narrowed it on the best model. But there is a way to tackle that problem: a numerical minimization tool called Newton-Ralphson search. The intuition is simple. You pick a starting point and look around the steepest slope. You then ski down that slope a little way and repeat again and again until you cant go any lower. in R we can do that using optim
+
+```{r}
+best = optim(c(0,0), measure_distance, data = sim1)
+best$par
+```
+
+```{r}
+ggplot(sim1, aes(x,y))+
+  geom_point(size = 2, color = 'grey30')+
+  geom_abline(intercept = best$par[1], slope = best$par[2])
+```
+
+There is one more approach that we can use for this model because it is a special case of a broader family: linear models. R has a tool for linear models.
+```{r}
+sim1_mod = lm(y~x, sim1)
+coef(sim1_mod)
+
+```
+This has the same value as optim.
+
+#Exercise
+```{r}
+#1. One downside of linear model is that it is sensitive to unusual values. fit a linear model following the simulated data and visualize the results. Re run a few times to generate a different simulated datasets
+
+sim1a = tibble(
+  x = rep(1:10, each = 3),
+  y = x*1.5 + 6 + rt(length(x), df = 2)
+)
+
+model = lm(y~x, sim1a)
+model
+coef(model)
+ggplot(sim1a, aes(x,y))+
+  geom_point(size = 2, color = 'grey30')+
+  geom_abline(intercept = coef(model)[1], slope = coef(model)[2])+
+  geom_smooth(method = 'lm', se = F)
+
+
+
+```
+One way to make linear models robust is to use a different measure. use mean absolute distance instead of rmse
+```{r}
+measure_distance2 = function(mod, data){
+  diff = data$y - model1(mod, data)
+  mean(abs(diff))
+}
+
+
+sim1_dista = function(a1, a2){
+  measure_distance2(c(a1, a2), sim1) #measure distance between a1 a2 and sim1
+}
+
+models2 = models %>%
+  mutate(dist = purrr::map2_dbl(a1, a2, sim1_dista))
+
+best2 = optim(c(0,0), measure_distance2, data = sim1)
+best2$par
+
+ggplot(sim1, aes(x,y))+
+  geom_point(size = 2, color = 'grey30')+
+  geom_abline(intercept = best2$par[1], slope = best2$par[2])+
+  geom_abline(intercept = best$par[1], slope = best$par[2])
+```
+
+One problem with performing numerical optimization is that it is only guaranteed to find one local optima. What thes problem with a three parameter like this
+```{r}
+model1 = function(a, data){
+  a[1] + data$x * a[2] + a[3]
+}
+
+measure_distance3 = function(a, data){
+  diff = data$y - model1(a, data)
+  sqrt(mean(diff^2))
+}
+
+#different starting points different optimal values
+optim(c(0,0,0), measure_distance3, data = sim1)$par
+optim(c(0, 0, 1), measure_distance3, data = sim1)$par
+```
+
+Visualizing models - Focus on understanding the models by looking at its predictions. It is also useful to see what the model does not capture. Residuals are powerful because they allow us to use models to remove striking patterns so we can study subtler trends that remain
+
+Predictions - we start by generating an evenly spaced grid of values that covers the region where our data lies. the easiest way is to do modelr::data_grid(). its first argument is a dataframe, for each subsequent argument it finds the unique variables and generate all combinations
+
+
+```{r}
+?data_grid
+
+#setting up the grid
+grid = sim1 %>%
+  data_grid(x)
+
+#next we add predictions which takes a dataframe and a model. it adds prediction from the model to a new column in the dataframe
+sim1_mod
+
+grid = grid %>%
+  add_predictions(sim1_mod)
+
+#Next we plot the predictions you might wonder why this instead of geom_abline. The advantage of this approach is that it works with any model. 
+
+ggplot(sim1, aes(x))+ #get x in ggplot
+  geom_point(aes(y = y))+ #plot y
+  geom_line(aes(y = pred), #plot y as predictors
+            data = grid,
+            color = 'red',
+            size = 1)
+
+
+```
+Try
+```{r}
+grid = sim1 %>%
+  data_grid(x)
+
+
+model = lm(y~x, data = sim1)
+
+grid = grid %>%
+  add_predictions(model)
+
+ggplot(sim1, aes(x))+
+  geom_point(aes(y = y))+
+  geom_line(data = grid, aes(y = pred), color= 'blue', size = 1)
+```
+
+Residuals - predictions tell you what the pattern of model has captured and the residuals tell you what the model has missed. The residuals are just distances between observed and predicted values that we computed earlier. 
+
+We add residuals to the data using add_residuals which works like add_predictions. However, we need to use the original dataset not a manufactured grid because to compute the residuals we need actual y values
+
+```{r}
+sim1 = sim1 %>%
+  add_residuals(model)
+
+ggplot(sim1, aes(x = resid))+
+  geom_freqpoly()
+```
+
+This helps you predict the quality of the model. How far away are the predictors from the observed values. The average residual will always be zero. 
+
+Youll often want to create plots using residuals instead of the original predictor.
+
+```{r}
+ggplot(sim1, aes(x, resid))+
+  geom_ref_line(h = 0, colour = 'black')+
+  geom_point()
+```
+
+Exercises
+```{r}
+#instead of using lm to fit a straightline you can use loess() to fit a smooth curve. Repeat the process of model fitting, grid generation, predictions and visualizations on sim1 using loss. Compare that to geom smooth
+
+model = loess(y~x, data = sim1)
+grid = data_grid(sim1, x)
+grid = grid %>%
+  add_predictions(model)
+
+sim1 = sim1 %>%
+  add_predictions(model) %>%
+  rename(`loess` = `pred`)
+
+sim1 %>%
+  ggplot(aes(x))+
+  geom_point(aes(y = y))+
+  geom_line(aes(y = loess), color = 'black')+
+  geom_smooth(aes(y = y), se = F)
+
+
+#plot the residuals instead
+
+loess_sim = sim1 %>%
+  add_residuals(model)
+
+sim1 %>%
+  ggplot(aes(x))+
+  geom_point(aes(y = resid))+
+  geom_ref_line(h = 0)+
+  geom_point(data = loess_sim, aes(y = resid), color = 'red')
+``` 
+Exercise2 - add predictions is paired with gather predictions and spread_predictions. How does these three functions differ?
+
+```{r}
+?add_predictions
+?spread_predictions
+?gather_predictions
+
+#gather predictions and spread predictions allow additing mulitple models at once
+sim1_mod = lm(y~x, data = sim1)
+grid = sim1 %>%
+  data_grid(x)
+
+#add predictiosn adds only single model at a time
+sim1_loess = loess(y~x, data = sim1)
+grid %>%
+  add_predictions(sim1_mod, var = 'pred_lm') %>%
+  add_predictions(sim1_loess, var = 'pred_loess')
+
+#gather predictions add multiple predictions from stacking results and adding a column with model name
+grid %>%
+  gather_predictions(sim1_mod, sim1_loess)
+
+#spread predictions is similar to running spread after using gather_predictions
+grid %>%
+  spread_predictions(sim1_mod, sim1_loess)
+```
+
+Formulas and model families - in R, formulas provide a general way of getting a special behavior. Rather than evaluating the values of variable right away, they capture them so they can be interpreted by the function.
+
+Majority of modeling functions in R use a standard conversion from formulas to functions. Youve seen a simple conversion y~x is translated to a1 + a2x. If you want to see what R really does, you can use model_matrix function which takes a dataframe and a formula and returns a tibble that defines the model equation. 
+
+```{r}
+df = tribble(
+  ~y, ~x1, ~x2,
+  4, 2, 5,
+  5, 1, 6
+)
+
+model_matrix(df, y~x1) # by default R will always add intercept column that is full of ones. if you dont want it you need to explicitly drop it
+
+model_matrix(df, y~x1 -1)
+
+#the model matrix grows when you add more variables
+model_matrix(df, y~x1 + x2)
+
+```
+
+
+
+Categorical variables - generating a function from a formula is straight forward when the predictor is continuous. but things get more complicated when the predictor is categorical. 
+
+```{r}
+df = tribble(
+  ~sex, ~response,
+  'male', 1,
+  'female', 2,
+  'male', 1
+)
+
+model_matrix(df, response~sex)
+```
+
+Check some data
+```{r}
+sim2
+ggplot(sim2)+
+  geom_point(aes(x,y))
+```
+
+We can fit a model to it and generate predictions
+```{r}
+mod2 = lm(y~x, data = sim2) #create linear model
+
+grid = sim2 %>%
+  data_grid(x) %>%
+  add_predictions(mod2) #create a datagrid
+
+ggplot(sim2, aes(x))+
+  geom_point(aes(y = y))+
+  geom_point(
+    data = grid,
+    aes(y = pred),
+    color = 'red',
+    size = 2
+  )
+```
+
+A model with a categorical x will predict the mean value for each category because the mean minimizes the root mean square distance
+
+```{r}
+grid
+mean = sim2 %>%
+  group_by(x) %>%
+  summarize( y = mean(y))
+mean
+```
+
+You cant make predictions about levels you did not observe. 
+
+```{r}
+tibble(x = 'e') %>%
+  add_predictions(mod2)
+```
+
+INTERACTIONS 
+Continous and categorical - what happens when you combine a continous and categorical variable? sim3 contains a categorical predictor and a continous predictor. 
+
+```{r}
+sim3
+
+ggplot(sim3, aes(x1, y))+
+  geom_point(aes(color = x2))
+```
+
+There are two possible models you could fit into this data
+```{r}
+mod1 = lm(y~x1 + x2, data= sim3) 
+mod2 = lm(y~x1 * x2, data = sim3)
+```
+
+
+When you "+" add variables the model will estimate the effect independent of all the others. it is possible to fit the interactions using "*".  To visualize this, we need two new tricks:
+- We have two predictors - we need to give both data_grid to both variables. it finds all the unique x1 and x2 and then generates the combination
+- to generate the predictions from both models simultaneously, we can use gather_predictions which add each predictions as a row. 
+
+```{r}
+grid = sim3 %>%
+  data_grid(x1, x2) %>%
+  gather_predictions(mod1,mod2)
+grid
+
+#visualie the results of both models using facetgrid
+
+ggplot(sim3, aes(x1, y, color = x2))+
+  geom_point()+
+  geom_line(data = grid, aes(y = pred))+
+  facet_wrap(~model)
+```
+
+The model that uses + has the same slope for each line but different intercepts. The model tha uses * has different slope and intercept.
+So which model fit better? We can take a look at the residuals
+
+```{r}
+sim3 = sim3 %>%
+  gather_residuals(mod1, mod2) #kunin yung residuals using original y
+
+ggplot(sim3, aes(x1, resid, color = x2))+
+  geom_point()+
+  geom_ref_line(h = 0)+
+  facet_grid(model~x2)
+```
+
+There is a way to quantify which is better but it requires a lot of mathetmatical background. Here we are interested in a qualitative assessment of whether or not the model has captured the pattern that we are interested in
+
+Interactions - two continous.
+
+Take a look at the equivalent model for two continous variables. Things proceed out identically to previous example
+```{r}
+sim4
+
+#create a model
+mod1 = lm(y~x1+x2, data = sim4)
+mod2 = lm(y~x1*x2, data = sim4)
+
+
+grid = sim4 %>%
+  data_grid(
+    x1 = seq_range(x1, 5),
+    x2 = seq_range(x2,5)
+  ) %>%
+  gather_predictions(mod1, mod2)
+```
+
+
+Instead of using every unique value of X, we used a regularly spaced grid of five values between minimum and maxmimum values. Some useful arguments to seq_range()
+
+pretty = True will generate a pretty sequence. something that looks nice in human eye. 
+```{r}
+#
+seq_range(c(0.0123, .923423), n = 5)
+seq_range(c(0.0123, .923423), n = 5, pretty= T)
+```
+Trim = .1 will trim 10% of tail values. This is useful if the variable has long tailed distribution and you want to focus on generating values near the center
+```{r}
+x1 = rcauchy(100)
+min(x1)
+max(x1)
+
+seq_range(x1, n = 5)
+seq_range(x1, n = 5, trim = .1)
+```
+Expand is the opposite of trim - expands range by 10%
+```{r}
+x2 = c(0,1)
+seq_range(x2, n =5)
+seq_range(x2, n = 5, expand = .2)
+```
+
+Try to visualiize the model, we have two continous predictors so it is like a 3D surface. we could use geom_tile()
+```{r}
+grid
+ggplot(grid, aes(x1,x2))+
+  geom_tile(aes(fill = pred))+
+  facet_wrap(~model)
+
+```
+
+Instead of looking at the surface from the top, we could look at it from either side showing multiple slices
+
+```{r}
+ggplot(grid, aes(x1, pred, color = x2, group = x2))+
+  geom_line()+
+  facet_wrap(~model)
+
+ggplot(grid, aes(x2, pred, color = x1, group = x1))+
+  geom_line()+
+  facet_wrap(~model)
+```
+
+This shows that the interaction between two continous variables work the same way as categorical and continuous variable. Theres not fixed offset: you need to both consider values of x1 and x2. 
+
+
+Transformations. you can also perform transformations inside the model formula. For example log(y)~ sqrt(x1) + x2. if your transformation involves +,'*',^,-, youll need to wrap it in I() so R does not treat it like part of the model specification. if you forget the I, and specify y ~ x^2 +2, R will compute differently. IF you get confused about what your model is doing, you can always use model_matrix() to see what equation lm() is fitting
+
+```{r}
+df = tribble(
+  ~y, ~x,
+  1,1,
+  2, 2,
+  3, 3
+)
+
+model_matrix(df, y ~ x^2 + x)
+model_matrix(df, y ~I(x^2) + x)
+```
+
+
+Transformations are useful because you can use them to approximate non linear functions. Taylor's theorem stated that you can approximate any smooth function with polynomials, That means you can use linear function to get arbitrarily close to a smooth function by fitting an equation like y = a1 + a2*x + a3x^2 + a4*x^4. Typing that sequence is tedious so R has a helper function poly()
+
+```{r}
+model_matrix(df, y ~ poly(x,2))
+```
+
+There is one problem with poly. outside the range of data, polynomials shoot off to positive or negative infinity. one safer alternative is to use natural spline, splines::ns()
+```{r}
+library(splines)
+model_matrix(df, y~ns(x,2))
+```
+
+Lets see what it looks like when we approximate a non linear function
+```{r}
+sim5 = tibble(
+  x = seq(0, 3.5*pi, length = 50),
+  y = 4 * sin(x) + rnorm(length(x))
+)
+ggplot(sim5, aes(x,y))+
+  geom_point()
+```
+
+Fit 5 linear models in the data
+```{r}
+mod1 = lm(y~ns(x,1), data = sim5)
+mod2 = lm(y~ns(x,2), data = sim5)
+mod3 = lm(y~ns(x,3), data = sim5)
+mod4 = lm(y~ns(x,4), data = sim5)
+mod5 = lm(y~ns(x,5), data = sim5)
+```
+
+create a grid
+```{r}
+grid = sim5 %>%
+  data_grid(x = seq_range(x, n = 50, expand = .1)) %>%
+  gather_predictions(mod1, mod2, mod3, mod4, mod5, .pred = 'y')
+
+sim5
+
+ggplot(sim5, aes(x,y))+
+  geom_point()+
+  geom_line(data= grid, color = 'red')+
+  facet_wrap(~model)
+```
+
+Notice that the exploration outside the range of data is clearly bad. That is the downside of approximating a function with a polynomial. But this is a very real problem wiith every model, the model can never tell you if the behavior is true when you start extrapolating outside the range of data that you have seen. YOu must rely on theory and science
+
+Exercise - what happens if you repeat the analysis of sim2 using a model without intercept. what happens to the model equation and what happens to the predictionbs
+```{r}
+sim2
+
+mod2a = lm(y~x - 1, data = sim2)
+mod2 = lm(y~x, data = sim2)
+
+sim2 %>%
+  data_grid(x) %>%
+  spread_predictions(mod2a, mod2)
+```
+
+Use model matrix to explore equations for the models i fit in sim3 and sim4. Why is * a good shorthand for interaction
+```{r}
+sim3 = sim3 %>%
+  select(x1, x2, rep, y, sd)
+
+x3 = model_matrix(y~x1*x2, data = sim3) 
+
+#confirm that x1:x2b is a product of x1 * x2b
+
+all(x3$`x1:x2b` == x3$x1 * x3$x2b)
+```
+
+
+```{r}
+sim4
+
+#create a model
+mod1 = lm(y~x1+x2, data = sim4)
+mod2 = lm(y~x1*x2, data = sim4)
+
+
+sim4_mods = sim4 %>%
+  gather_residuals(mod1, mod2)
+
+ggplot(sim4_mods, aes(resid, color = model))+
+  geom_freqpoly()+
+  geom_ref_line(h = 0)
+  
+```
+
+```{r}
+try = sim4 %>%
+  rename(output = `y`)
+
+?gather_residuals
+
+sim4
+```
+
+
+Missing values - modeling functions drop missing values. R will silently drop them but options(na.action = na.warn) makes sure you get the warning
+
+
+```{r}
+df = tribble(
+  ~x, ~y,
+  1, 2.2,
+  2, NA,
+  3, 3.5,
+  4, 8.3,
+  NA, 10
+)
+
+mod = lm(y~x, data = df)
+mod
+
+#to supress the warning, set na,action = na.exclude
+
+mod = lm(y~x, data = df, na.action = na.exclude)
+
+nobs(mod) #number of observations used
+```
+
+Other model families
+
+Generalized linear models GLM, stats::glm() - extends linear models to non continous responses. They work by defining a distance metric based on statistical idea of likelihood
+
+generalized additive models, mgvc::gam() - extends generalized linear models to incoporate arbitrary smooth functions. That means you can write formula like y ~ s(x) which becomes an equation and let gam estimate that function is.
+
+Penalized linear models - glmnet::glmnet() - add a penalty to the distance that penalizes complex models as defined by the distance between parameter vector and origin. 
+
+robust linear models - mass::rlm() - tweak the distance to downweight points that are very far away. This makes them less sensitive to the presence of outliers at the cost of not quite as good when there are no outliers
+
+trees - rpart::rpart() - attack the problem in a completely different way than linear models. trees are not effective by themselves, but are very powerful when used with aggregates by models like random forest and gradient boosting machines xgboost
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,416 @@
+---
+title: "Model Building"
+output: html_notebook
+---
+
+
+Prerequisites
+```{r}
+library(tidyverse)
+library(modelr)
+options(na.action = na.warn)
+
+library(nycflights13)
+library(lubridate)
+```
+Why are low quality diamonds more expensive
+
+
+```{r}
+diamonds
+ggplot(diamonds, aes(cut, price))+
+  geom_boxplot()
+
+ggplot(diamonds, aes(color, price))+
+  geom_boxplot()
+
+ggplot(diamonds, aes(clarity, price))+
+  geom_boxplot()
+```
+
+Price and Carat - it looks like low quality diamonds have higher prices because there is a confounding variable: the weight or carat
+of the diamond. The weight of the diamond is the single most important factor in determining the price of diamond and lower quality diamonds tend to be larger
+```{r}
+ggplot(diamonds, aes(carat, price))+
+  geom_hex(bins = 50)
+```
+We can make it easier to see how the other attributes of a diamond affect its relative price by fitting a model to separate out the effect of carat. Lets make a couple of tweak first.
+- Focus on diamonds smaller than 2.5 carats
+- log transform carat and price
+
+
+```{r}
+
+diamonds2 = diamonds %>%
+  filter(carat < 2.5) %>%
+  mutate(lprice = log2(price),
+         lcarat = log2(carat))
+
+
+ggplot(diamonds2, aes(lcarat, lprice))+
+  geom_hex(bins = 50)+
+  geom_smooth(method = 'lm')
+```
+
+Log transform is useful here and makes the pattern linear and linear patterns are easier to work with. Lets take the next step and remove that strong linear pattern. We first make the pattern explicit by fitting a model
+
+```{r}
+
+mod_diamond = lm(lprice~lcarat, data = diamonds2)
+
+coef(mod_diamond)
+ggplot(diamonds2, aes(lcarat, lprice))+
+  geom_hex(bins = 50)+
+  geom_abline(intercept = coef(mod_diamond)[1], slope = coef(mod_diamond)[2])
+```
+
+
+Then we look at what the model tells us about the data. Note that I back transform the predictions, undoing the log transform so I can overlay the predictions in raw data
+
+```{r}
+grid = diamonds2 %>%
+  data_grid(carat = seq_range(carat,20)) %>%
+  mutate(lcarat = log2(carat)) %>%
+  add_predictions(mod_diamond, 'lprice') %>%
+  mutate(price = 2 ^ lprice)
+
+
+ggplot(diamonds2, aes(carat,price))+
+  geom_hex(bins = 50) +
+  geom_line(data = grid, aes(carat, price), color = 'red', size = 1)
+
+?geom_line
+```
+
+Check residuals
+```{r}
+diamonds2 = diamonds2 %>%
+  add_residuals(mod_diamond, 'lresid')
+  
+diamonds2 %>%
+  ggplot(aes(lcarat, lresid))+
+  geom_hex(bins = 50)
+```
+We can re do now our motivating plots using those residuals
+
+```{r}
+ggplot(diamonds2, aes(cut, lresid))+
+  geom_boxplot()
+
+ggplot(diamonds2, aes(color, lresid))+
+  geom_boxplot()
+
+ggplot(diamonds2, aes(clarity, lresid))+
+  geom_boxplot()
+```
+Now we see the relationship that we expect. As the quality of the diamonds increases, so does its relative price. To interpret the y axis, we need to think about what the residuals are telling us. A residual of -1 indicates that lprice was 1 unit lower than a prediction based solely on its weight. 
+
+
+A more complicated model. If we want to we can continue to build up our model moving the effects weve observed into the model to make them explicit. We could include color, cut, clarity into the model so that we also make explicit the effects of these three categorical variables
+
+```{r}
+mod_diamond2 = lm(lprice ~ lcarat + color + cut + clarity, data = diamonds2)
+```
+
+This model now includes four predictors. so its getting harder to visualize. Fortunately they are all independent which means we can plot them individually in 4 plots.  to make the process easier well use the .model argument to datagrid
+
+```{r}
+grid = diamonds2 %>%
+  data_grid(cut, .model = mod_diamond2) %>%
+  add_predictions(mod_diamond2)
+
+grid
+```
+
+
+```{r}
+ggplot(grid, aes(cut, pred))+
+  geom_point()
+```
+
+If the model needs more variables that you havent supplied, data_grid() will automatically fill them with typical value. For continous variables it uses the median and for categorical variables it uses the most common value
+```{r}
+diamonds2= diamonds2 %>%
+  add_residuals(mod_diamond2, 'lresid2')
+
+ggplot(diamonds2, aes(lcarat, lresid2))+
+  geom_hex(bins = 50)
+```
+
+This plots indicate that there are some diamonds with quite large residuals. Remember a residual of 2 indicates that a diamond is 4x the price that we expected. it is often usual to look at those values individually
+
+```{r}
+diamonds2 %>%
+  filter(abs(lresid) > 1) %>%
+  add_predictions(mod_diamond2) %>%
+  mutate(pred  = round(2 ^ pred)) %>%
+  select(price, pred, carat:table, x:z) %>%
+  arrange(desc(price))
+```
+
+Check model
+```{r}
+lresid2_summary <- summarise(diamonds2,
+  rmse = sqrt(mean(lresid2^2)),
+  mae = mean(abs(lresid2)),
+  p025 = quantile(lresid2, 0.025),
+  p975 = quantile(lresid2, 0.975)
+)
+
+?summarise
+lresid2_summary
+```
+
+
+What affects the daily number of flights
+visualize the number of flights per day
+
+```{r}
+daily = flights %>%
+  mutate(date = make_date(year, month, day)) %>%
+  group_by(date) %>%
+  summarise(n = n())
+
+daily = flights %>%
+  mutate(date = make_date(year, month, day)) %>%
+  count(date)
+
+ggplot(daily, aes(date, n))+
+  geom_line()
+```
+Day of week - understanding the long term trend is challenging because theres a very strong day of week effect that dominates the subtler patterns. lets start by looking at the distributions of of flight by day of week
+
+```{r}
+?wday
+library(scales)
+daily = daily %>%
+  mutate(wday = wday(date, label  = T))
+
+daily%>%
+  ggplot(aes(wday, n, fill = wday))+
+  geom_boxplot()+
+  scale_y_continuous(labels = comma)+
+  theme(legend.position = 'None')
+```
+
+There are fewer flights on weekends because most travel is for business. One way to improve this strong pattern is to use a model. First we fit the model and display its predictions overlaid on the original data
+
+```{r}
+mod = lm(n~wday, daily)
+
+grid = daily %>%
+  data_grid(wday) %>%
+  add_predictions(mod, 'n')
+
+ggplot(daily, aes(wday, n))+
+  geom_boxplot()+
+  geom_point(data = grid, color = 'red', size = 3)
+```
+
+Next is to compute and visualize the residuals
+
+```{r}
+daily = daily %>%
+  add_residuals(mod)
+
+daily %>%
+  ggplot(aes(date, resid))+
+  geom_line()+
+  geom_ref_line(h = 0, colour = 'black')
+```
+
+The deviation from zero shows the deviation away from expected number of flights. Our model seems to fail starting in June. You can still see a strong regular pattern that our model has not captured.  Draw each line per week
+
+```{r}
+daily %>%
+  ggplot(aes(date, resid, color = wday))+
+  geom_line()+
+  geom_ref_line(h = 0)
+```
+
+Our model fails to predict accurately the number of flights on Saturday. During summer there are more flights than we expect, during fall there are fewer. Well see how we can do better to capture this pattern
+
+Some days with fewer flights than expected
+```{r}
+daily %>%
+  filter(resid < - 100)
+```
+
+
+These are american holidays. 
+There seems to some smooth long term trend over the course of the year we can highlight the trend using geom_smooth
+
+```{r}
+daily %>%
+  ggplot(aes(date, resid))+
+  geom_ref_line(h = 0)+
+  geom_line()+
+  geom_smooth(se = F, span = .2, method = 'loess')
+```
+
+There are fewer flights in January and December and more in summer. We cant do much with this pattern quantitatively because we only have a single year of data. But we can use our domain knowledge 
+
+
+Seasonal saturday affect - lets first tackle our failure to accurately predict the number of flights on Saturday. A good place to start is back to the raw numbers focusing on saturday
+```{r}
+daily %>%
+  filter(wday == 'Sat')%>%
+  ggplot(aes(date, n))+
+  geom_point()+
+  geom_line()+
+  scale_x_date(
+    date_breaks = '1 month',
+    date_labels = '%b',
+    minor_breaks = '1 month'
+  )
+
+```
+This pattern may be due to summer holidays, many people go on holiday in the summer and people dont mind travelling on saturday. 
+
+Check the effect of season. Because it was suggested that it is less common for americans to travel on fall because of holidays.
+
+```{r}
+
+
+
+daily = daily %>%
+  mutate(term = cut(date,
+                    breaks = ymd(20130101, 20130605, 20130825, 20140101),
+                    labels = c('spring','summer','fall')))
+
+daily %>%
+  filter(wday == 'Sat') %>%
+  ggplot(aes(date, n, color = term))+
+  geom_point(alpha = 1/3)+
+  geom_line()+
+  scale_x_date(
+    breaks = '1 month',
+    date_labels = '%b'
+  )
+``` 
+Check how it affects the other days of the weeks
+
+```{r}
+daily %>%
+  ggplot(aes(wday, n, color = term))+
+  geom_boxplot()+
+  expand_limits(y = 600)
+```
+it looks like there is a significant variation across terms. so fitting a separate day of week effect for each term is reasonable. This improves our model, but not as much as we might hope.
+
+```{r}
+mod1 = lm(n~wday, data = daily)
+mod2 = lm(n~wday * term, data = daily)
+```
+
+
+```{r}
+daily %>%
+  gather_residuals(without_term = mod1, with_term = mod2)%>%
+  ggplot(aes(date, resid, color = model))+
+  geom_line(alpha = 3/4)
+```
+
+We can see the problem by overlaying the predictions from the model to raw data
+
+
+```{r}
+grid = daily %>%
+  data_grid(wday, term) %>%
+  add_predictions(mod2, 'n')
+
+ggplot(daily, aes(wday, n))+
+  geom_boxplot()+
+  geom_point(data = grid, color = 'red')+
+  facet_wrap(~term)
+```
+Our model is finding the mean effect, but we have a lot of big outliers, so the mean tends to be far away from the typical value. we can alleviate this problem by using a model that is robust to the effect of outliers. MASS:rlm. This greatly reduces the impact of outliers on our estimates and gives a model that does a good job of removing the day of week pattern
+
+```{r}
+library(MASS)
+mod3 = MASS::rlm(n~wday *term, data = daily)
+
+daily %>%
+  add_residuals(mod3, 'resid') %>%
+  ggplot(aes(date, resid))+
+  geom_ref_line(h = 0)+
+  geom_line()+
+  geom_smooth(se = F)
+```
+
+It is now easier to see the long term trend and positive and negative outliers
+
+
+Computed variables - if you are experimenting with many models and many visualizations, its a good idea to bundle the creation of variables up into a function. So theres no chance of accidently applying a transformation in differnet places
+
+```{r}
+library(lubridate)
+compute_vars = function(data){
+  data %>%
+    mutate(wday = wday(date, label = T))
+}
+
+#another option is to put transformations directly in the model formula
+
+wday2 = function(x){
+  wday(x, label = T)
+}
+
+```
+
+
+Time of year: An alternative approach:
+An alternative approach is making our knowledge explicit in the model to give idea the data more room to speak. We could use a more flexible model and allow that to capture the pattern we are interested in. A simple linear trend is not adequate so we could try using a natural spline to fit a smooth curve across year
+```{r}
+library(splines)
+
+mod = MASS::rlm(n~wday * ns(date,5), data = daily)
+mod
+daily %>%
+  data_grid(wday, date = seq_range(date, n = 13)) %>%
+  add_predictions(mod) %>%
+  ggplot(aes(date,pred, color = wday))+
+  geom_line()+
+  geom_point()
+```
+Exercise - How do the three days with highest residuals represent
+```{r}
+daily %>%
+  top_n(3, resid)
+```
+
+
+Create a new variable that  splits wday variable into terms but only for saturdays. how does the model compare with the model with every combination of wday and term
+
+```{r}
+daily = daily %>%
+  mutate(wday2 = 
+           case_when(
+             wday == 'Sat' & term == 'summer' ~ 'Sat-summer',
+             wday == 'Sat' & term == 'fall' ~ 'Sat-fall',
+             wday == 'Sat' & term == 'spring' ~ 'Sat-spring',
+             TRUE ~ as.character(wday)
+           ))
+
+mod3 = lm(n~wday2, data= daily)
+
+daily %>%
+  gather_residuals(sat_term = mod3, all_interact = mod2) %>%
+  ggplot(aes(date, resid, color = model))+
+  geom_line()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

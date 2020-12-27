@@ -1,0 +1,108 @@
+---
+title: "Pipes with magrittr"
+output: html_notebook
+---
+
+Piping alternatives - the point of pipe is to help you write code in a way thats easier. explore number of ways writing the same code. tell a story a bout a bunny named foo foo
+
+- Intermediate step
+- overwrite the original object many times
+- compose function
+- use the pipe
+```{r}
+library(magrittr)
+library(tidyverse)
+install.packages('pryr')
+
+little_bunny()
+#intermediate step
+hop(foo_foo)
+
+diamonds2 = diamonds %>%
+  mutate(price_per_carat = price/carat)
+
+pryr::object_size(diamonds)
+pryr::object_size(diamonds2)
+
+pryr::object_size(diamonds, diamonds2)
+
+#the way pipe was written, the pipe wont work for two classes function
+assign('x',10)
+
+'x' %>% assign(100)
+x # same value
+
+#if you want to assign using pipe
+env = environment()
+'x' %>% assign(100, envir = env)
+x
+```
+The other functions with this problem include get() and load()
+
+WHEN NOT TO USE PIPES
+- Your pipes are longer than 10 steps. In that case create objects with meaningful names. that will make debugging easier. 
+- You have multiple inputs or outputs. If there is not one primary object being transformed but two or more objects being combined together, dont use the pipe
+- you are starting to think about a directed graph with complex dependency. 
+
+Other tools from magrittr
+tee-pipe for a function to return an object
+```{r}
+
+rnorm(100) %>%
+  matrix(ncol = 2) %>%
+  plot() %>%
+  str()
+
+rnorm(100) %>%
+  matrix(ncol = 2) %T>%
+  plot() %>%
+  str()
+```
+
+If you are working with functions that dont have dataframe-based API. You might find %$% useful. it explodes out variables in dataframe so that you can refer to them explicitly. This is useful with many functions in base R
+
+```{r}
+mtcars %$%
+  cor(disp, mpg)
+```
+
+%<>% operator for assignment
+
+```{r}
+mtcars
+mtcars = mtcars %>%
+  transform(cyl = cyl*2)
+
+?transform
+
+mtcars %<>%
+  transform(cyl = cyl *2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,175 @@
+---
+title: "Vectors"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+```
+
+Coercion - implicit coercion happens when you use a logical vector with a numeric summary functions or use a double when integer is expect
+```{r}
+x = sample(20, 100, replace = T)
+y = x > 10
+sum(y)
+mean(y)
+
+typeof(c(T,1L))
+typeof(c(1.5, 1L))
+
+is.atomic(c(T,F,T))
+```
+
+Scalars and recycling rules - shorter vector is recycled or repeated 
+
+```{r}
+sample(10) + 100
+
+1:10 + 1:2
+
+tibble(x = 1:4, y = 1:2) # error
+
+tibble(x = 1:4, y = rep(1:2, 2))
+```
+
+Naming vectors - all vectors can be named
+```{r}
+a = c(x = 1, y = 2, z = 4)
+a['x']
+
+#or use set_names
+
+set_names(1:3, c('a','b','c'))
+```
+
+Subsetting - four type of things you can subset vector with
+```{r}
+#numeric vector containing only integers
+x = c('one','two','three', 'four','five')
+x[c(1,4,5)]
+x[c(1,1,4,4,5,5)]
+
+#negative values drop the element
+x[c(-1,-3,-5)]
+
+#subsetting with logical vectors keeps all values correspondign to true
+x = c(10,3,NA, 5,8,1, NA)
+x[!is.na(x)]
+
+#if you have a named vector you can subset it
+x = c('abc'= 1, 'def' = 6, 'xyz'= 11)
+x[c('abc','xyz')]
+
+x[] # returns all
+```
+
+Exercise
+```{r}
+#create a function and return the last value
+
+x = c(0,1,3,5,NA, 7, NA)
+
+last_value = function(x){
+  x[[length(x)]]
+}
+
+last_value(x)
+
+#returns element at even numbered positions
+
+even_elements = function(x){
+  x[seq_along(x) %% 2 == 0]
+}
+
+even_elements(x)
+```
+
+Recursive vectors
+```{r}
+x = list(1,2,3)
+x
+
+#str is a good tool for list because it focused on structure not on contents
+str(x)
+
+x_named = list(a = 1, b = 2, c= 3)
+x_named
+str(x_named)
+
+#list can contain mix of numbers
+y = list('a', 1L, 1.5, T)
+str(y)
+
+y[[1]]
+
+#list can even contain list
+
+z = list(list(1,2), list(3,4))
+str(z)
+
+
+```
+
+Subsetting with list
+```{r}
+lis = list(a = 1:3 , b = 'a string', c = pi, d = list(-1,-5))
+str(lis)
+
+#[] extracts a sublist
+str(a[1:2])
+str(a[4])
+
+#[[]] extract components from list
+str(y[[1]])
+str(lis[[1]])
+
+# $ is a shorthand for extracting named elements in list
+lis$b
+lis[['b']]
+
+
+```
+
+Augmented vectors - vectors with additional attributes. 
+Factors - 
+Date times and times
+Tibbles
+
+Factors are designed to represent categorical data that can take fixed set of possible values
+```{r}
+
+x = factor(c('ab','cd','ab'), levels = c('ab','cd','ef'))
+x
+```
+tibbles are augmented list. THey have three classes - tbl_df, tbl, and dataframe. They have two attributes (column) names and row.names
+
+```{r}
+?tibble
+tb = tibble(x = 1:5, y = 5:1)
+attributes(tb)
+
+tibble(x = 1:3, y = list("a", 1, list(1:3)))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

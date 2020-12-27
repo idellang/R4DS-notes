@@ -1,0 +1,317 @@
+---
+title: "Tidy Data with tidyr"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+?count
+```
+
+Tidy data
+```{r}
+table1
+table2
+table3
+table4a
+table4b
+```
+
+
+```{r}
+#compute rate per 10000
+table1 %>%
+  mutate(rate = cases/population * 10000)
+
+#compute cases per year
+table1 %>%
+  group_by(country,year) %>%
+  summarize(n = mean(cases))
+
+table1 %>%
+  count(year, wt = cases)
+
+#visualize changes overtime
+ggplot(table1 , aes(x = year, y = cases))+
+  geom_line(aes(group = country), color = 'grey50')+
+  geom_point(aes(color = country))
+```
+
+
+
+Exercises
+```{r}
+#compute the rate for table2, table4a, table4b
+#using table2
+cases = table2 %>%
+  filter(type == 'cases') %>%
+  select(-type) %>%
+  rename( 'cases' = 'count')
+
+population = table2 %>%
+  filter(type == 'population') %>%
+  select(-type) %>%
+  rename( 'population' = 'count')
+
+table2_tidy = merge(cases, population) %>%
+  mutate(rate = cases/population * 10000)
+
+table1
+table2 %>%
+  filter(type == 'cases') %>%
+  ggplot(mapping = aes(x = year, y = count, group = country))+
+  geom_line()+
+  geom_point(aes(color = country))
+```
+Spreading and gathering.
+Gathering - some column names are not variables but values. Can use gather
+spreading - observation is scattered across multiple row
+```{r}
+#gathering
+table4a
+
+tidy4a = table4a %>%
+  gather('1999', '2000', key = 'year', value = 'cases')
+
+tidy4b = table4b %>%
+  gather('1999', '2000', key = 'year', value = 'population')
+
+left_join(tidy4a, tidy4b)
+merge(tidy4a, tidy4b)
+
+
+#spreading
+table2 %>%
+  spread(key = type, value = count)
+```
+
+Exercises
+```{r}
+#why are gather and spread not perfectly symmetrical. both spread and gather have a convert argument, what does it do
+stocks = tibble(
+  year = c(2015, 2015, 2016,2016),
+  half = c(1,2,1,2),
+  return = c(1.88, 0.59, 0.92, .17)
+)
+?spread
+stocks %>%
+  spread(year, return, convert = T) %>%
+  gather('year','return', `2015`:`2016`, convert = T)
+#convert for datatype
+
+#why does this code fail
+table4a %>%
+  gather(`1999`, `2000`, key = 'year',value = 'cases')
+
+#why does spreading this tibble fail? How could you add a new column to fix the problem
+people = tribble(
+  ~name, ~key, ~value,
+  'Philipp Woods', 'age', 45,
+  'Philipp Woods', 'height', 186,
+  'Philipp Woods','age', 50,
+  'Jessica Cordero','age',37,
+  'Jessica Cordero','height',156
+)
+#add a row of distinct observation
+people2 = people %>%
+  group_by(name, key) %>%
+  mutate(obs = row_number())
+
+people2 %>%
+  spread(key = key, value = value)
+
+#tidy the simple tibble below
+preg <- tribble(
+  ~pregnant, ~male, ~female,
+  "yes", NA, 10,
+  "no", 20, 12
+)
+preg %>%
+  gather('male','female', key = 'sex', value = count) %>%
+  filter(!is.na(count))
+  
+```
+
+
+Separating and  Pull
+Separate - pulls one column and split where a character appears
+```{r}
+table3
+table3 %>%
+  separate(rate, into = c('cases','population'), sep = '/', convert = T)
+
+#can also pass a vector of integers to sep. will interpret the integers as position of split
+table3 %>%
+  separate(year, into = c('century','year'), sep = 2)
+```
+
+Unite - inverse of separate. Combines multiple columns into single colunn
+```{r}
+?unite
+table5 %>%
+  unite(new, century, year, sep = '')
+
+table5 %>%
+  unite(new, century, year, sep = '', remove = F)
+```
+
+Exercises
+```{r}
+?separate
+#what do fill and extra do in separate
+tibble(x = c('a,b,c', 'd,e,f,g','h,i,j')) %>%
+  separate(x, into = c('one','two', 'three','four'), fill = 'left')
+
+#combines the two
+tibble(x = c("a,b,c", "d,e,f,g", "h,i,j")) %>%
+  separate(x, c("one", "two", "three"), extra = "merge")
+
+#compare and contrast separate and extract
+
+#separate by character
+tibble(x = c("X_1", "X_2", "AA_1", "AA_2")) %>%
+    separate(x, c("variable", "into"), sep = "_")
+
+#by position
+tibble(x = c("X1", "X2", "Y1", "Y2")) %>%
+  separate(x, c("variable", "into"), sep = c(1))
+
+#function extract uses regular expression to specify groups. more flexible than separate because it does not require common separator
+
+tibble(x = c("X_1", "X_2", "AA_1", "AA_2")) %>%
+   extract(x, c("variable", "id"), regex = "([A-Z])_([0-9])")
+
+tibble(x = c("X1", "X2", "Y1", "Y2")) %>%
+  extract(x, c("variable", "id"), regex = "([A-Z])([0-9])")
+
+
+```
+
+Missing values - a value could be missing in two ways
+Explicitly = flagged as NA
+implicitly = not represented in the data
+```{r}
+stocks = tibble(
+  year = c(2015,2015,2015,2015,2016,2016,2016),
+  qtr = c(1,2,3,4,2,3,4),
+  return = c(1.88, .59, .35, NA, .92, .17, 2.66)
+)
+#there are missing
+stocks %>%
+  spread(year, return)
+
+?gather
+stocks %>%
+  spread(year, return) %>%
+  gather(key = year, value = return, `2015`:`2016`, na.rm = T)
+
+#complete takes a set of columns and finds all unique combinations
+stocks %>%
+  complete(year, qtr)
+
+treatment = tribble(
+  ~person, ~treatment, ~response,
+  'Derrick Whitmore', 1, 7,
+  NA, 2,10,
+  NA, 3,9,
+  'Katherine Burke', 1, 4
+)
+treatment
+
+?fill
+treatment %>%
+  fill(person, .direction = 'up')
+```
+
+Exercises
+```{r}
+stocks <- tibble(
+  year   = c(2015, 2015, 2015, 2015, 2016, 2016, 2016),
+  qtr    = c(   1,    2,    3,    4,    2,    3,    4),
+  return = c(1.88, 0.59, 0.35,   NA, 0.92, 0.17, 2.66)
+)
+
+?spread
+stocks %>%
+  spread(key = year, value = return, fill = 0)
+```
+
+Case study
+```{r}
+summary(who)
+who
+
+#gather columns
+who1 = who %>%
+  gather(new_sp_m014:newrel_f65, key = 'key', value = 'cases', na.rm = T)
+
+#get hint of the structure of values using key
+who1 %>%
+  count(key)
+```
+
+
+The dataset
+- first three letters denote whether column contains new or old cases of tb
+- nex two letters describe the type of tb
+- sixth letter gives male or female
+- remaining numbers are the age group
+
+```{r}
+#minor fix on names so that they have consistent names
+who2 = who1 %>%
+  mutate(key = stringr::str_replace(key, 'newrel','new_rel'))
+
+#separate the codes
+who3 = who2 %>%
+  separate(key, into = c('new','type','sexage'), sep = '_')
+
+#drop columns
+who4 = who3 %>%
+  select(-iso2, -iso3, - new)
+
+#split sex and age
+who5 = who4 %>%
+  separate(sexage, into = c('sex','age'), sep = 1)
+who5
+```
+
+One line of code
+```{r}
+tidywho = who %>%
+  gather(new_sp_m014:newrel_f65, key = 'code', value = 'value', na.rm = T) %>%
+  mutate(code = stringr::str_replace(code, 'newrel','new_rel')) %>%
+  separate(code, into = c('new','var','sexage')) %>%
+  separate(sexage, into = c('sex','age'), sep = 1) %>%
+  select(-iso2, -iso3, -new)
+
+tidywho
+```
+
+Exercises
+```{r}
+#make informative visuzalization of data
+tidywho %>%
+  group_by(country) %>%
+  summarize(mean_cases = mean(value, na.rm = T)) %>%
+  arrange(desc(mean_cases)) %>%
+  mutate(rank = rank(desc(mean_cases))) %>%
+  filter(rank < 11) %>%
+  ggplot(aes(country, mean_cases))+
+  geom_col()+
+  labs(y = 'cases', title = 'top 10 countries with the most number of TB')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
